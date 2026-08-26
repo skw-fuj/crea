@@ -94,17 +94,66 @@ class Google(Connector):
         url = f"https://www.googleapis.com/calendar/v3/calendars/{urllib.parse.quote(cal)}/events"
         return self._json(self._req(url, "POST", body))
 
-    def events(self, days: int = 14) -> list[dict]:
+    def calendars(self) -> list[str]:
+        """Every calendar this account can read, primary first.
+
+        Most people keep work in a shared calendar rather than their personal
+        one, so defaulting to "primary" quietly hides the very shoots CREA is
+        supposed to know about. Read them all unless told otherwise.
+        """
+        url = "https://www.googleapis.com/calendar/v3/users/me/calendarList"
+        items = self._json(self._req(url)).get("items", [])
+        # Google subscribes most accounts to a public-holidays calendar. It is
+        # read-only noise for a work assistant and would pad every briefing.
+        items = [c for c in items if "#holiday@" not in (c.get("id") or "")]
+        ids = [c["id"] for c in items if c.get("primary")]
+        ids += [c["id"] for c in items if not c.get("primary") and c.get("id")]
+        return ids or ["primary"]
+
+    def calendar_id_by_name(self, name: str) -> str | None:
+        """Find a calendar by its display name, case-insensitively."""
+        url = "https://www.googleapis.com/calendar/v3/users/me/calendarList"
+        for c in self._json(self._req(url)).get("items", []):
+            if (c.get("summary") or "").strip().lower() == name.strip().lower():
+                return c.get("id")
+        return None
+
+    def events(self, days: int = 14, calendar_id: str | None = None,
+               days_back: int = 0) -> list[dict]:
         from datetime import datetime, timedelta, timezone
-        cal = self.conf.get("calendar_id") or "primary"
+
+        # calendar_id may be a single id, a list of ids, or null. Null now means
+        # "every calendar I can see" rather than "primary only".
+        cal = calendar_id or self.conf.get("calendar_id")
+        if not cal:
+            try:
+                cals = self.calendars()
+            except Exception:
+                cals = ["primary"]        # a listing failure must not kill the brief
+        elif isinstance(cal, str):
+            cals = [cal]
+        else:
+            cals = list(cal)
+
         now = datetime.now(timezone.utc)
         q = urllib.parse.urlencode({
-            "timeMin": now.isoformat(),
+            "timeMin": (now - timedelta(days=days_back)).isoformat(),
             "timeMax": (now + timedelta(days=days)).isoformat(),
             "singleEvents": "true", "orderBy": "startTime", "maxResults": 100,
         })
-        url = f"https://www.googleapis.com/calendar/v3/calendars/{urllib.parse.quote(cal)}/events?{q}"
-        return self._json(self._req(url)).get("items", [])
+        out: list[dict] = []
+        for c in cals:
+            url = (f"https://www.googleapis.com/calendar/v3/calendars/"
+                   f"{urllib.parse.quote(c)}/events?{q}")
+            try:
+                out += self._json(self._req(url)).get("items", [])
+            except Exception:
+                continue                  # one unreadable calendar shouldn't lose the rest
+
+        def _start(e):
+            s = e.get("start", {})
+            return s.get("dateTime") or s.get("date") or ""
+        return sorted(out, key=_start)
 
     # --------------------------------------------------------------- drive
 

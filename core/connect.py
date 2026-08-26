@@ -125,23 +125,75 @@ def connect_google(cfg) -> bool:
         return False
 
     from .connectors.google import SCOPES, TOKEN_URL
+
+    # Google blocked the out-of-band flow (urn:ietf:wg:oauth:2.0:oob) for every
+    # remaining client on 31 January 2023 — it returns a user-facing "this app is
+    # blocked" page, so there is no code to paste back and the connect can never
+    # complete. The documented replacement for a desktop app is the loopback
+    # flow: bind a throwaway local server, let Google redirect the browser to it
+    # with the code, and read it off the request. Port 0 asks the OS for a free
+    # port, so nothing collides with n8n, Ollama or the voice service.
+    # https://developers.google.com/identity/protocols/oauth2/resources/oob-migration
+    import http.server
+    import socketserver
+    import threading
+    import urllib.request
+
+    caught: dict[str, str] = {}
+
+    class _Catch(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802 - name fixed by BaseHTTPRequestHandler
+            parsed = urllib.parse.urlparse(self.path)
+            params = urllib.parse.parse_qs(parsed.query)
+            caught.update({k: v[0] for k, v in params.items()})
+            body = (b"<html><body style='font:16px -apple-system;padding:3em'>"
+                    b"<h2>CREA is connected.</h2>"
+                    b"<p>You can close this tab and go back to the terminal.</p>"
+                    b"</body></html>")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *_):
+            pass  # the terminal is the user's; don't scribble request logs on it
+
+    httpd = socketserver.TCPServer(("127.0.0.1", 0), _Catch)
+    port = httpd.server_address[1]
+    redirect_uri = f"http://127.0.0.1:{port}"
+
+    print(f"\n  Add this to your OAuth client's Authorised redirect URIs:")
+    print(f"    {redirect_uri}")
+    print("  (Desktop-app clients usually accept any 127.0.0.1 port already.)")
+
     q = urllib.parse.urlencode({
-        "client_id": cid, "redirect_uri": "urn:ietf:wg:oauth:2.0:oob",
+        "client_id": cid, "redirect_uri": redirect_uri,
         "response_type": "code", "scope": " ".join(SCOPES),
         "access_type": "offline", "prompt": "consent"})
     url = f"https://accounts.google.com/o/oauth2/v2/auth?{q}"
-    print("\n  Opening your browser. Approve access, then paste the code back here.")
+    print("\n  Opening your browser. Approve access — the code comes back on its own.")
     subprocess.run(["open", url], capture_output=True)
     print(f"  If it didn't open: {url}\n")
-    code = ask("Paste the code")
-    if not code:
-        print("  skipped.")
-        return False
+    print("  Waiting for Google (Ctrl-C to give up)...")
 
-    import urllib.request
+    t = threading.Thread(target=httpd.handle_request, daemon=True)
+    t.start()
+    t.join(timeout=300)
+    httpd.server_close()
+
+    if "error" in caught:
+        print(f"  Google refused: {caught['error']}")
+        return False
+    code = caught.get("code")
+    if not code:
+        print("  timed out waiting for the approval. Run this again when you're ready.")
+        return False
+    print("  got the approval.")
+
     data = urllib.parse.urlencode({
         "code": code, "client_id": cid, "client_secret": csec,
-        "redirect_uri": "urn:ietf:wg:oauth:2.0:oob",
+        "redirect_uri": redirect_uri,
         "grant_type": "authorization_code"}).encode()
     try:
         with urllib.request.urlopen(urllib.request.Request(TOKEN_URL, data=data),
@@ -193,22 +245,35 @@ def connect_whatsapp(cfg) -> bool:
 
 
 def connect_higgsfield(cfg) -> bool:
-    head("Higgsfield", "Paste the API key from your Higgsfield account settings.")
-    open_page("https://higgsfield.ai/", "Higgsfield")
-    key = ask("API key", secret=True)
-    if not key:
-        print("  skipped.")
+    # Higgsfield retired its bearer-token API. There is no key to paste: the
+    # product ships a CLI that authenticates over OAuth and stores the token
+    # itself, so all CREA can do is check the CLI is installed, signed in and
+    # pointed at a workspace — and say exactly which of those is missing.
+    head("Higgsfield", "Higgsfield uses a CLI and a browser sign-in, not an API key.")
+    from .connectors.higgsfield import Higgsfield, SETUP
+    h = Higgsfield(cfg)
+
+    if not h._bin():
+        print("  The Higgsfield CLI isn't installed yet.\n")
+        print(f"  {SETUP}\n")
+        print("  Run those three, then: crea connect higgsfield")
         return False
-    set_env(cfg, "HIGGSFIELD_API_KEY", key)
-    from .connectors.higgsfield import Higgsfield
+
     try:
-        Higgsfield(cfg).verify()
-        print("  connected.")
-        return True
+        info = h.verify()
     except Exception as e:
-        print(f"  saved, but the test call failed: {e}")
-        print("  CREA will still upload to Drive; it just won't hand off to Higgsfield.")
+        print(f"  the CLI is installed but not usable yet: {e}\n")
+        print(f"  {SETUP}")
         return False
+
+    print(f"  connected — {info['account']}")
+    try:
+        print("\n  Workspaces:")
+        for line in h.workspaces().splitlines():
+            print(f"    {line}")
+    except Exception:
+        pass
+    return True
 
 
 def connect_apify(cfg) -> bool:

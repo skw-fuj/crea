@@ -12,6 +12,104 @@ from .base import Skill, SkillResult
 from ..clock import now as _now
 
 
+class CalendarSync(Skill):
+    """Every event on the Shoots calendar becomes a job.
+
+    Acuity's API is a paid add-on, but Acuity syncs bookings into Google
+    Calendar on any plan — so the calendar, not the Acuity API, is the honest
+    source of truth for what has been booked. This reads one named calendar
+    ("Shoots" by default) and mirrors it into the vault.
+    """
+
+    name = "calendar-sync"
+    title = "Pull shoots from the Shoots calendar"
+    needs = ("google",)
+    schedule = "*/15 * * * *"
+    phrases = ("sync my calendar", "check for new shoots")
+
+    CAL_NAME = "Shoots"
+
+    @staticmethod
+    def _plain(html: str) -> str:
+        """Google lets descriptions carry HTML; the vault is plain text."""
+        import re
+        txt = re.sub(r"<br\s*/?>|</p>", "\n", html or "", flags=re.I)
+        txt = re.sub(r"<[^>]+>", "", txt)
+        for a, b in (("&amp;", "&"), ("&nbsp;", " "), ("&lt;", "<"), ("&gt;", ">")):
+            txt = txt.replace(a, b)
+        return "\n".join(l.strip() for l in txt.splitlines() if l.strip())
+
+    @classmethod
+    def _client_from(cls, desc: str, summary: str) -> str:
+        """Pull a client name out of the description, else fall back.
+
+        These events are written by a person, so the only reliable convention
+        is a "Contact:" line. Guessing harder than that invents clients.
+        """
+        import re
+        m = re.search(r"contact\s*:\s*([^\n+0-9]{2,40})", desc, re.I)
+        if m:
+            name = m.group(1).strip(" -–—·,")
+            if name:
+                return name
+        return "Unknown"
+
+    def run(self, **kw) -> SkillResult:
+        blocked = self.guard()
+        if blocked:
+            return blocked
+
+        google = self.conn["google"]
+        cal_name = self.cfg.get("integrations.google.shoots_calendar", self.CAL_NAME)
+        cal_id = (self.cfg.get("integrations.google.shoots_calendar_id", None)
+                  or google.calendar_id_by_name(cal_name))
+        if not cal_id:
+            return SkillResult(ok=False,
+                               message=f"No calendar named {cal_name!r}. "
+                                       f"Rename it, or set "
+                                       f"integrations.google.shoots_calendar in "
+                                       f"crea.config.json.")
+
+        existing = {j.get("external_id") for j in self.vault.jobs()}
+        added = []
+        for e in google.events(days=180, calendar_id=cal_id, days_back=60):
+            eid = e.get("id")
+            if not eid or eid in existing:
+                continue          # idempotent: the event id is the key
+
+            st = e.get("start", {})
+            raw = st.get("dateTime") or st.get("date")
+            if not raw:
+                continue
+            shoot_at = raw[:16] if "T" in raw else f"{raw}T09:00"
+
+            desc = self._plain(e.get("description", ""))
+            summary = (e.get("summary") or "Shoot").strip()
+            job = Job(
+                title=summary,
+                client=self._client_from(desc, summary),
+                address=(e.get("location") or "").strip(),
+                shoot_at=shoot_at,
+                status="Booked",
+                job_type=summary,
+                fee=None,          # the calendar does not carry a price
+                source="calendar",
+                notes=desc,
+            )
+            self.vault.write_job(job, external_id=eid)
+            added.append(job)
+
+        if added:
+            self.vault.render_dashboard()
+            self.vault.log("calendar", f"{len(added)} shoot(s) from {cal_name}")
+
+        return SkillResult(
+            ok=True,
+            message=(f"{len(added)} new shoot(s) from {cal_name}."
+                     if added else f"No new shoots on {cal_name}."),
+            data={"added": len(added)})
+
+
 class AcuitySync(Skill):
     """Every Acuity booking becomes a job and a calendar entry, automatically."""
 

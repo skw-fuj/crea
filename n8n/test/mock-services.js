@@ -10,6 +10,19 @@ const fs = require('fs');
 const path = require('path');
 const PORT = 5699;
 const calls = [];
+
+// conversation state — in-memory key/value, merged on write, exactly like the
+// shipped vault-api/server.js. Persisting this is what makes the multi-turn
+// routing test faithful (crea-01 must see mode:'ai' on the follow-up messages).
+const state = new Map();
+const stateKey = s => String(s || 'x').replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase();
+function stateGet(k) { return state.get(stateKey(k)) || {}; }
+function stateSet(patch) {
+  const k = stateKey(patch && patch.key);
+  const next = { ...(state.get(k) || {}), ...(patch || {}), updatedAt: new Date().toISOString() };
+  state.set(k, next);
+  return next;
+}
 const KB_FILE = process.env.CREA_KB_FILE || path.join(__dirname, '..', 'knowledge', 'crea-knowledge.md');
 
 // crude section retrieval over the knowledge markdown
@@ -28,17 +41,20 @@ function knowledge(q) {
   return [...new Set([...hit, ...must])].slice(0, 4);
 }
 
-// real LLM for the /omniroute route via the free-tier CLI (per CLAUDE.md)
-function llm(messages) {
-  return new Promise(resolve => {
-    const prompt = messages.map(m => `[${m.role}]\n${m.content}`).join('\n\n') +
-      '\n\n[assistant]\n';
-    execFile('python3', [path.join(process.env.HOME, '.claude/registry/cheap.py'), prompt],
-      { timeout: 60000, maxBuffer: 1 << 20 }, (err, stdout) => {
-        if (err) return resolve(null);
-        resolve(String(stdout).replace(/^\[cheap-tier:[^\]]*\]\s*/i, '').trim());
-      });
-  });
+// /omniroute proxies to a real OpenAI-compatible endpoint if OMNIROUTE_URL is set,
+// otherwise returns a canned JSON reply so the demo still runs offline.
+async function llm(messages) {
+  const url = process.env.OMNIROUTE_URL, key = process.env.OMNIROUTE_KEY || '';
+  if (url) {
+    try {
+      const r = await fetch(url, { method: 'POST',
+        headers: { 'content-type': 'application/json', ...(key ? { authorization: 'Bearer ' + key } : {}) },
+        body: JSON.stringify({ model: process.env.OMNIROUTE_MODEL || 'auto', temperature: 0.3, messages }) });
+      const j = await r.json();
+      return j.choices?.[0]?.message?.content || null;
+    } catch { return null; }
+  }
+  return JSON.stringify({ reply: "Thanks — I'll pass this to the team and someone will get back to you with a quote.", brief: {}, booking_ready: false, needs_human: true });
 }
 
 function body(req) {
@@ -62,7 +78,7 @@ const server = http.createServer(async (req, res) => {
 
   // ---- introspection ----
   if (path === '/_calls') return send(res, 200, calls);
-  if (path === '/_reset') { calls.length = 0; return send(res, 200, { ok: true }); }
+  if (path === '/_reset') { calls.length = 0; state.clear(); return send(res, 200, { ok: true }); }
 
   // ---- WAHA ----
   if (path === '/waha/api/sendText')
@@ -72,7 +88,10 @@ const server = http.createServer(async (req, res) => {
 
   // ---- vault API ----
   if (path.startsWith('/vault/')) {
-    if (path === '/vault/state') { if (req.method==='GET') return send(res,200,{}); return send(res,200,{...(payload||{}),updatedAt:new Date().toISOString()}); }
+    if (path === '/vault/state') {
+      if (req.method === 'GET') return send(res, 200, stateGet(u.searchParams.get('key')));
+      return send(res, 200, stateSet(payload));
+    }
     if (path === '/vault/knowledge')
       return send(res, 200, { chunks: knowledge(u.searchParams.get('q')) });
     if (path === '/vault/jobs') {

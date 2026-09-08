@@ -41,9 +41,10 @@ if curl -sf "http://127.0.0.1:$VAULT_PORT/health" >/dev/null 2>&1; then
 else
   # pass Acuity creds + the knowledge-file path through from config.env
   kb=$(grep -E '^CREA_KNOWLEDGE_FILE=' config.env | sed 's/^CREA_KNOWLEDGE_FILE=//;s/[[:space:]]*#.*//' ); kb="${kb:-knowledge/crea-knowledge.md}"
+  vdir=$(grep -E '^CREA_VAULT_DIR=' config.env | sed 's/^CREA_VAULT_DIR=//;s/[[:space:]]*#.*//'); vdir="${vdir:-$PWD/vault-api/data}"; vdir="${vdir/#\~/$HOME}"
   auid=$(grep -E '^CREA_ACUITY_USER_ID=' config.env | sed 's/.*=//;s/[[:space:]]*#.*//')
   akey=$(grep -E '^CREA_ACUITY_API_KEY=' config.env | sed 's/.*=//;s/[[:space:]]*#.*//')
-  VAULT_API_PORT="$VAULT_PORT" KNOWLEDGE_FILE="$PWD/$kb" VAULT_DIR="$PWD/vault-api/data" \
+  VAULT_API_PORT="$VAULT_PORT" KNOWLEDGE_FILE="$PWD/$kb" VAULT_DIR="$vdir" \
     ACUITY_USER_ID="$auid" ACUITY_API_KEY="$akey" \
     nohup node vault-api/server.js > /tmp/crea-vault-api.log 2>&1 &
   sleep 1
@@ -102,12 +103,18 @@ else
   n8n update:workflow --id=creaapifyleads --active=false >/dev/null 2>&1 || true
 fi
 ok "activated: $on   (unconfigured workflows left inactive — re-run go-live.sh after adding their keys)"
-if command -v launchctl >/dev/null && launchctl list 2>/dev/null | grep -q com.tris.n8n; then
-  launchctl kickstart -k "gui/$(id -u)/com.tris.n8n" >/dev/null 2>&1 || true
+restart_n8n(){
+  local lbl
+  lbl=$(launchctl list 2>/dev/null | awk 'tolower($3) ~ /n8n/ {print $3; exit}')
+  if [ -n "$lbl" ]; then launchctl kickstart -k "gui/$(id -u)/$lbl" >/dev/null 2>&1 && return 0; fi
+  if command -v pm2 >/dev/null && pm2 pid n8n >/dev/null 2>&1; then pm2 restart n8n >/dev/null 2>&1 && return 0; fi
+  return 1
+}
+if restart_n8n; then
   for i in $(seq 1 30); do curl -sf "$N8N/healthz" >/dev/null 2>&1 && break; sleep 2; done
   ok "n8n restarted"
 else
-  warn "restart n8n yourself so the webhooks register"
+  warn "restart n8n now (Ctrl-C its terminal and 'n8n start' again) so the new webhooks register"
 fi
 
 say "5/5  what's left (manual — needs your accounts)"

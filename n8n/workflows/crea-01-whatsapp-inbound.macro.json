@@ -1,11 +1,10 @@
 {
   "name": "CREA — WhatsApp Inbound Capture (Macro)",
   "meta": {
-    "trisFamily": "reliable_ingress",
-    "trisMode": "macro",
-    "trisVertical": "crea",
-    "trisNote": "Front door for the friend's personal WhatsApp (via WAHA). Ignores own outgoing messages, dedupes, then: an active booking conversation -> hand to Booking Agent; anything else -> vault inbox + a one-line notify to the owner. No model memory; routing is deterministic.",
-    "trisAtoms": [
+    "family": "reliable_ingress",
+    "mode": "macro",
+    "note": "Front door for the owner's personal WhatsApp (via WAHA). Ignores own outgoing messages, dedupes, then: an active booking conversation -> hand to Booking Agent; anything else -> vault inbox + a one-line notify to the owner. No model memory; routing is deterministic.",
+    "steps": [
       "parse_inbound_message",
       "dedupe",
       "load_stage",

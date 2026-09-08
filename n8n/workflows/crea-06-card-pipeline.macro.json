@@ -2,11 +2,10 @@
   "id": "creacardpipeline",
   "name": "CREA — Card Pipeline (Macro)",
   "meta": {
-    "trisFamily": "ai_media_assembly",
-    "trisMode": "macro",
-    "trisVertical": "crea",
-    "trisNote": "Triggered by CREA's local card-detect script (which does the copy + verify — n8n NEVER touches the card). Receives the file manifest, splits it into shoots by capture-gap, makes a Drive folder per shoot, then HUMAN GATE: owner replies to approve before anything is pushed to Higgsfield and the editor is notified. Nothing here formats or deletes.",
-    "trisAtoms": [
+    "family": "ai_media_assembly",
+    "mode": "macro",
+    "note": "Triggered by CREA's local card-detect script (which does the copy + verify — n8n NEVER touches the card). Receives the file manifest, splits it into shoots by capture-gap, then HUMAN GATE: owner replies to approve before anything is pushed to Higgsfield and the editor is notified. Nothing here formats or deletes.",
+    "steps": [
       "receive_manifest",
       "split_by_gap",
       "create_drive_folders",
@@ -15,7 +14,7 @@
       "higgsfield_push",
       "notify_editor"
     ],
-    "trisSetupNote": "Create Drive Folder is DISABLED by default (needs the CREA Google credential). Enable it and wire Split -> Create Drive Folder -> Record Shoots once Google is connected; then add driveFolderId to the Record Shoots + Higgsfield bodies. 'Push to Higgsfield' ships DISABLED — enable it and set CREA_HIGGSFIELD_URL once you have the Higgsfield API. The editor is still notified either way."
+    "setup": "Create Drive Folder is DISABLED by default (needs the CREA Google credential). Enable it and wire Split -> Create Drive Folder -> Record Shoots once Google is connected; then add driveFolderId to the Record Shoots + Higgsfield bodies. 'Push to Higgsfield' ships DISABLED — enable it and set CREA_HIGGSFIELD_URL once you have the Higgsfield API. The editor is still notified either way."
   },
   "nodes": [
     {

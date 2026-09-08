@@ -2,11 +2,10 @@
   "id": "creamondayinvoice",
   "name": "CREA — Monday Invoicing (Macro)",
   "meta": {
-    "trisFamily": "scheduled_report_reminder",
-    "trisMode": "macro",
-    "trisVertical": "crea",
-    "trisNote": "Monday 09:00. Finds completed jobs on the tracker not yet invoiced, drafts an invoice per job into the vault (DRAFT ONLY \\u2014 never sends), marks the row, and WhatsApps the owner a summary to review and send manually. No money moves here.",
-    "trisAtoms": [
+    "family": "scheduled_report_reminder",
+    "mode": "macro",
+    "note": "Monday 09:00. Finds completed jobs on the tracker not yet invoiced, drafts an invoice per job into the vault (DRAFT ONLY \\u2014 never sends), marks the row, and WhatsApps the owner a summary to review and send manually. No money moves here.",
+    "steps": [
       "schedule",
       "read_tracker",
       "select_billable",

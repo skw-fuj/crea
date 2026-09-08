@@ -2,100 +2,374 @@
   "id": "facetassistant",
   "name": "FACET — AI Assistant (context → knowledge → generate → handoff)",
   "meta": {
-    "trisFamily": "conversation_state_machine",
-    "trisMode": "macro",
-    "trisNote": "Generic conversational assistant for any facet. Webhook -> load transcript from the state store -> retrieve knowledge (GET {{FACET_KNOWLEDGE_URL}}?q=) -> one OmniRoute call with a facet system prompt -> parse STRICT JSON {reply, capture, needs_human} -> reply via FACET — Channel Send -> persist transcript + capture. Answers only from knowledge; degrades to a neutral human handoff. This is the generic form of CREA's crea-02b. Copy, set the {{FACET_*}} vars, register.",
-    "trisAtoms": ["load_context", "retrieve_knowledge", "build_prompt", "generate", "parse", "reply", "persist", "handoff"]
+    "family": "conversation_state_machine",
+    "mode": "macro",
+    "note": "Generic conversational assistant for any facet. Webhook -> load transcript from the state store -> retrieve knowledge (GET {{FACET_KNOWLEDGE_URL}}?q=) -> one OmniRoute call with a facet system prompt -> parse STRICT JSON {reply, capture, needs_human} -> reply via FACET — Channel Send -> persist transcript + capture. Answers only from knowledge; degrades to a neutral human handoff. The generic form of the CREA assistant. Copy, set the {{FACET_*}} vars, register.",
+    "steps": [
+      "load_context",
+      "retrieve_knowledge",
+      "build_prompt",
+      "generate",
+      "parse",
+      "reply",
+      "persist",
+      "handoff"
+    ]
   },
   "nodes": [
     {
-      "parameters": { "httpMethod": "POST", "path": "{{FACET_INBOUND_PATH}}", "responseMode": "onReceived", "options": {} },
-      "id": "wh", "name": "Inbound Webhook", "type": "n8n-nodes-base.webhook", "typeVersion": 2, "position": [160, 320], "webhookId": "facet-inbound"
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "{{FACET_INBOUND_PATH}}",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "wh",
+      "name": "Inbound Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        160,
+        320
+      ],
+      "webhookId": "facet-inbound"
     },
     {
-      "parameters": { "jsCode": "// FACET: adjust extraction to your channel's inbound payload shape.\nconst b = items[0].json.body || items[0].json;\nconst p = b.payload || b;\nif (p.fromMe === true) return [];\nconst from = String(p.from || p.chatId || p.sender || '').replace('@c.us','');\nconst text = (p.body || p.text || p.message || '').toString().trim();\nif (!from) throw new Error('inbound missing sender');\nreturn [{ json: { from, text, receivedAt: new Date().toISOString() } }];" },
-      "id": "parse", "name": "Parse", "type": "n8n-nodes-base.code", "typeVersion": 2, "position": [340, 320], "onError": "continueErrorOutput"
+      "parameters": {
+        "jsCode": "// FACET: adjust extraction to your channel's inbound payload shape.\nconst b = items[0].json.body || items[0].json;\nconst p = b.payload || b;\nif (p.fromMe === true) return [];\nconst from = String(p.from || p.chatId || p.sender || '').replace('@c.us','');\nconst text = (p.body || p.text || p.message || '').toString().trim();\nif (!from) throw new Error('inbound missing sender');\nreturn [{ json: { from, text, receivedAt: new Date().toISOString() } }];"
+      },
+      "id": "parse",
+      "name": "Parse",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        340,
+        320
+      ],
+      "onError": "continueErrorOutput"
     },
     {
-      "parameters": { "method": "GET", "url": "={{ '{{STATE_STORE_URL}}?key=' + $json.from }}", "options": { "timeout": 10000 } },
-      "id": "ctx", "name": "Load Context", "type": "n8n-nodes-base.httpRequest", "typeVersion": 4.2, "position": [520, 320], "onError": "continueRegularOutput"
+      "parameters": {
+        "method": "GET",
+        "url": "={{ '{{STATE_STORE_URL}}?key=' + $json.from }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "ctx",
+      "name": "Load Context",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        520,
+        320
+      ],
+      "onError": "continueRegularOutput"
     },
     {
-      "parameters": { "method": "GET", "url": "={{ '{{FACET_KNOWLEDGE_URL}}?q=' + encodeURIComponent($node['Parse'].json.text) }}", "options": { "timeout": 12000 } },
-      "id": "kb", "name": "Knowledge Lookup", "type": "n8n-nodes-base.httpRequest", "typeVersion": 4.2, "position": [700, 320], "onError": "continueRegularOutput", "retryOnFail": true, "maxTries": 2
+      "parameters": {
+        "method": "GET",
+        "url": "={{ '{{FACET_KNOWLEDGE_URL}}?q=' + encodeURIComponent($node['Parse'].json.text) }}",
+        "options": {
+          "timeout": 12000
+        }
+      },
+      "id": "kb",
+      "name": "Knowledge Lookup",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        700,
+        320
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 2
     },
     {
       "parameters": {
         "jsCode": "const inc = $node['Parse'].json;\nconst stored = $node['Load Context'].json || {};\nconst transcript = Array.isArray(stored.transcript) ? stored.transcript.slice(-6) : [];\nconst capture = (stored.capture && typeof stored.capture === 'object') ? stored.capture : {};\n\nlet kb = '';\ntry { const k = $node['Knowledge Lookup'].json; kb = Array.isArray(k.chunks) ? k.chunks.join('\\n\\n') : (k.text || JSON.stringify(k)); } catch (e) {}\nif (!kb) kb = '(knowledge base unavailable)';\n\nconst system = [\n  `{{FACET_SYSTEM_PROMPT}}`,\n  ``,\n  `Answer ONLY from KNOWLEDGE. If it's not there, say a human will follow up and set needs_human true. Never invent facts, prices, or policies.`,\n  `Keep replies short and plain text. Respond with STRICT JSON only, no code fence:`,\n  `{\"reply\": string, \"capture\": object, \"needs_human\": boolean}`,\n  `Put any structured details you gather into capture; merge with what's known.`,\n  ``,\n  `KNOWLEDGE:\\n${kb}`,\n  ``,\n  `CAPTURED SO FAR: ${JSON.stringify(capture)}`\n].join('\\n');\n\nconst messages = [{ role: 'system', content: system }];\nfor (const t of transcript) messages.push({ role: t.role === 'assistant' ? 'assistant' : 'user', content: String(t.content || '') });\nmessages.push({ role: 'user', content: inc.text });\n\nreturn [{ json: { messages, from: inc.from, text: inc.text, captureSoFar: capture, transcript } }];"
       },
-      "id": "prompt", "name": "Build Prompt", "type": "n8n-nodes-base.code", "typeVersion": 2, "position": [880, 320]
+      "id": "prompt",
+      "name": "Build Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        320
+      ]
     },
     {
       "parameters": {
-        "method": "POST", "url": "{{FACET_OMNIROUTE_URL}}",
-        "authentication": "genericCredentialType", "genericAuthType": "httpHeaderAuth",
-        "sendBody": true, "specifyBody": "json",
+        "method": "POST",
+        "url": "{{FACET_OMNIROUTE_URL}}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ model: '{{FACET_LLM_MODEL}}', temperature: 0.3, response_format: { type: 'json_object' }, messages: $json.messages }) }}",
-        "options": { "timeout": 60000 }
+        "options": {
+          "timeout": 60000
+        }
       },
-      "id": "ai", "name": "AI (OmniRoute)", "type": "n8n-nodes-base.httpRequest", "typeVersion": 4.2, "position": [1060, 320],
-      "onError": "continueRegularOutput", "retryOnFail": true, "maxTries": 2, "waitBetweenTries": 2000
+      "id": "ai",
+      "name": "AI (OmniRoute)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1060,
+        320
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000
     },
     {
       "parameters": {
         "jsCode": "const from = $node['Build Prompt'].json.from;\nconst captureSoFar = $node['Build Prompt'].json.captureSoFar || {};\nlet raw = '';\ntry { const r = items[0].json; raw = r.choices?.[0]?.message?.content || r.content || r.message?.content || ''; } catch (e) {}\nlet parsed = null;\nif (raw) {\n  let s = String(raw).trim().replace(/^```(json)?/i,'').replace(/```$/,'').trim();\n  const a = s.indexOf('{'), b = s.lastIndexOf('}');\n  if (a >= 0 && b > a) { try { parsed = JSON.parse(s.slice(a, b + 1)); } catch (e) {} }\n}\nif (!parsed || typeof parsed.reply !== 'string') {\n  return [{ json: { from, reply: 'Thanks \\u2014 someone will get back to you shortly.', capture: captureSoFar, needs_human: true, degraded: true } }];\n}\nconst capture = Object.assign({}, captureSoFar, (parsed.capture && typeof parsed.capture === 'object') ? parsed.capture : {});\nreturn [{ json: { from, reply: parsed.reply.trim(), capture, needs_human: parsed.needs_human === true, degraded: false } }];"
       },
-      "id": "parseai", "name": "Parse AI", "type": "n8n-nodes-base.code", "typeVersion": 2, "position": [1240, 320]
+      "id": "parseai",
+      "name": "Parse AI",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1240,
+        320
+      ]
     },
     {
       "parameters": {
-        "workflowId": { "__rl": true, "value": "facetchannelsend", "mode": "id", "cachedResultName": "FACET — Channel Send (atomic)" },
-        "workflowInputs": { "mappingMode": "defineBelow", "value": { "to": "={{ $json.from }}", "text": "={{ $json.reply }}" }, "matchingColumns": [], "schema": [], "attemptToConvertTypes": false, "convertFieldsToString": true },
-        "options": { "waitForSubWorkflow": true }
+        "workflowId": {
+          "__rl": true,
+          "value": "facetchannelsend",
+          "mode": "id",
+          "cachedResultName": "FACET — Channel Send (atomic)"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "to": "={{ $json.from }}",
+            "text": "={{ $json.reply }}"
+          },
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
       },
-      "id": "send", "name": "Send Reply", "type": "n8n-nodes-base.executeWorkflow", "typeVersion": 1.2, "position": [1420, 320], "onError": "continueRegularOutput"
+      "id": "send",
+      "name": "Send Reply",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1420,
+        320
+      ],
+      "onError": "continueRegularOutput"
     },
     {
       "parameters": {
-        "method": "POST", "url": "{{STATE_STORE_URL}}",
-        "sendBody": true, "specifyBody": "json",
+        "method": "POST",
+        "url": "{{STATE_STORE_URL}}",
+        "sendBody": true,
+        "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ key: $node['Parse AI'].json.from, capture: $node['Parse AI'].json.capture, transcript: ($node['Build Prompt'].json.transcript || []).concat([{ role: 'user', content: $node['Parse'].json.text }, { role: 'assistant', content: $node['Parse AI'].json.reply }]).slice(-12), lastInboundAt: new Date().toISOString() }) }}",
-        "options": { "timeout": 10000 }
+        "options": {
+          "timeout": 10000
+        }
       },
-      "id": "persist", "name": "Persist Context", "type": "n8n-nodes-base.httpRequest", "typeVersion": 4.2, "position": [1600, 320], "onError": "continueRegularOutput"
+      "id": "persist",
+      "name": "Persist Context",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1600,
+        320
+      ],
+      "onError": "continueRegularOutput"
     },
     {
       "parameters": {
-        "conditions": { "options": { "caseSensitive": true, "typeValidation": "loose" }, "combinator": "and", "conditions": [
-          { "leftValue": "={{ $node['Parse AI'].json.needs_human }}", "rightValue": true, "operator": { "type": "boolean", "operation": "true", "singleValue": true } }
-        ] },
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "loose"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $node['Parse AI'].json.needs_human }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        },
         "options": {}
       },
-      "id": "human", "name": "Needs a human?", "type": "n8n-nodes-base.if", "typeVersion": 2, "position": [1780, 320]
+      "id": "human",
+      "name": "Needs a human?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1780,
+        320
+      ]
     },
     {
       "parameters": {
-        "workflowId": { "__rl": true, "value": "facetchannelsend", "mode": "id", "cachedResultName": "FACET — Channel Send (atomic)" },
-        "workflowInputs": { "mappingMode": "defineBelow", "value": {
-          "to": "={{ '{{FACET_ESCALATION_TO}}' }}",
-          "text": "={{ 'Needs a human \\u2014 ' + $node['Parse AI'].json.from + ':\\n' + JSON.stringify($node['Parse AI'].json.capture, null, 2) }}"
-        }, "matchingColumns": [], "schema": [], "attemptToConvertTypes": false, "convertFieldsToString": true },
+        "workflowId": {
+          "__rl": true,
+          "value": "facetchannelsend",
+          "mode": "id",
+          "cachedResultName": "FACET — Channel Send (atomic)"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "to": "={{ '{{FACET_ESCALATION_TO}}' }}",
+            "text": "={{ 'Needs a human \\u2014 ' + $node['Parse AI'].json.from + ':\\n' + JSON.stringify($node['Parse AI'].json.capture, null, 2) }}"
+          },
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
         "options": {}
       },
-      "id": "escalate", "name": "Escalate", "type": "n8n-nodes-base.executeWorkflow", "typeVersion": 1.2, "position": [1960, 240], "onError": "continueRegularOutput"
+      "id": "escalate",
+      "name": "Escalate",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1960,
+        240
+      ],
+      "onError": "continueRegularOutput"
     }
   ],
   "connections": {
-    "Inbound Webhook": { "main": [[{ "node": "Parse", "type": "main", "index": 0 }]] },
-    "Parse": { "main": [[{ "node": "Load Context", "type": "main", "index": 0 }]] },
-    "Load Context": { "main": [[{ "node": "Knowledge Lookup", "type": "main", "index": 0 }]] },
-    "Knowledge Lookup": { "main": [[{ "node": "Build Prompt", "type": "main", "index": 0 }]] },
-    "Build Prompt": { "main": [[{ "node": "AI (OmniRoute)", "type": "main", "index": 0 }]] },
-    "AI (OmniRoute)": { "main": [[{ "node": "Parse AI", "type": "main", "index": 0 }]] },
-    "Parse AI": { "main": [[{ "node": "Send Reply", "type": "main", "index": 0 }]] },
-    "Send Reply": { "main": [[{ "node": "Persist Context", "type": "main", "index": 0 }]] },
-    "Persist Context": { "main": [[{ "node": "Needs a human?", "type": "main", "index": 0 }]] },
-    "Needs a human?": { "main": [[{ "node": "Escalate", "type": "main", "index": 0 }], []] }
+    "Inbound Webhook": {
+      "main": [
+        [
+          {
+            "node": "Parse",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse": {
+      "main": [
+        [
+          {
+            "node": "Load Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Context": {
+      "main": [
+        [
+          {
+            "node": "Knowledge Lookup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Knowledge Lookup": {
+      "main": [
+        [
+          {
+            "node": "Build Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Prompt": {
+      "main": [
+        [
+          {
+            "node": "AI (OmniRoute)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI (OmniRoute)": {
+      "main": [
+        [
+          {
+            "node": "Parse AI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse AI": {
+      "main": [
+        [
+          {
+            "node": "Send Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Reply": {
+      "main": [
+        [
+          {
+            "node": "Persist Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Persist Context": {
+      "main": [
+        [
+          {
+            "node": "Needs a human?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Needs a human?": {
+      "main": [
+        [
+          {
+            "node": "Escalate",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    }
   },
-  "settings": { "executionOrder": "v1", "errorWorkflow": "{{GLOBAL_ERROR_HANDLER_ID}}" }
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "creaerrorhandler"
+  }
 }

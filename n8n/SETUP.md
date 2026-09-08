@@ -119,6 +119,12 @@ WAHA and Apify auth travel in the request — no n8n credential.
 
 ---
 
+## Your data
+
+CREA stores everything as plain text under `CREA_VAULT_DIR` (blank = `vault-api/data/`).
+Point it at your Obsidian vault and turn on Obsidian Sync so your bookings are on every
+device and backed up — **`DATA-AND-BACKUP.md`** has the how and the options.
+
 ## The two things only you can do
 
 - **Scan the WhatsApp QR** — `cd waha && cp .env.example .env` (set `WAHA_API_KEY`), then

@@ -175,14 +175,14 @@
     <p class="eyebrow">n8n hands layer · verification run</p>
     <h1>CREA booked a shoot on your&nbsp;laptop</h1>
     <p class="lede">Every CREA workflow — including the new AI booking assistant — driven end to
-      end through the n8n running on this machine (v2.30.7) against the live TRIS OS state store.
+      end through the n8n running on this machine (v2.30.7) against the shipped vault API.
       WhatsApp, Acuity, Apify and the vault API were answered by a local stand-in that logged
       every call; the assistant ran against a real model. This is that log.</p>
 
     <div class="runbar">
       <span>run <b>2026-09-08</b></span>
       <span>n8n <b>2.30.7</b> @ localhost:5678</span>
-      <span>state store <b>:5691</b> (real)</span>
+      <span>vault API <b>:5692</b> (real)</span>
       <span>mock services <b>:5699</b></span>
       <span>execs read from <b>database.sqlite</b></span>
     </div>
@@ -222,9 +222,9 @@
           <div class="bub in">Hi, how much is a listing video for a 3 bedroom house?</div>
           <div class="bub out">Our listing video package is $450. Could you share the address so we can confirm availability and give a full quote?</div>
           <div class="bub in">It's 40 Awaba St, Mosman. Are you free this Saturday?</div>
-          <div class="bub out">Our listing video is $450. 40 Awaba St, Mosman. Saturday looks open, Tris will confirm. What time works best for you?</div>
+          <div class="bub out">Our listing video is $450. 40 Awaba St, Mosman. Saturday looks open, the owner will confirm. What time works best for you?</div>
           <div class="bub in">Let's do it. Owner home, side gate open.</div>
-          <div class="bub out">Saturday looks open, Tris will confirm. What time works best for you?</div>
+          <div class="bub out">Saturday looks open, the owner will confirm. What time works best for you?</div>
         </div>
       </div>
       <div>
@@ -233,9 +233,9 @@
           <div class="chain">
             <div class="step"><span class="dot"></span><span class="lbl">quoted <b>$450</b> — the exact figure from <span class="mono">crea-knowledge.md</span>, nothing invented</span><span class="ms">✓</span></div>
             <div class="rail"></div>
-            <div class="step"><span class="dot"></span><span class="lbl">checked Acuity → “Saturday looks open, <span class="mono">Tris</span> will confirm” — never confirms a slot</span><span class="ms">✓</span></div>
+            <div class="step"><span class="dot"></span><span class="lbl">checked Acuity → “Saturday looks open, the owner will confirm” — never confirms a slot</span><span class="ms">✓</span></div>
             <div class="rail"></div>
-            <div class="step"><span class="dot"></span><span class="lbl">brief built across 3 turns, held in the state store</span><span class="ms">✓</span></div>
+            <div class="step"><span class="dot"></span><span class="lbl">brief built across 3 turns, held in the vault API</span><span class="ms">✓</span></div>
             <div class="rail"></div>
             <div class="step"><span class="dot"></span><span class="lbl">off-KB question → “team will follow up” + owner ping; unpriced item → “I'll get you a quote”</span><span class="ms">✓</span></div>
             <div class="rail"></div>
@@ -287,7 +287,7 @@
             <div class="rail"></div>
             <div class="step"><span class="dot"></span><span class="lbl">Parse &amp; Guard <span class="mono" style="color:var(--ink-faint)">— drop fromMe, dedupe</span></span><span class="ms">45 ms</span></div>
             <div class="rail"></div>
-            <div class="step"><span class="dot"></span><span class="lbl">Load Stage <span class="mono" style="color:var(--ink-faint)">— state store</span></span><span class="ms">14 ms</span></div>
+            <div class="step"><span class="dot"></span><span class="lbl">Load Stage <span class="mono" style="color:var(--ink-faint)">— vault API /state</span></span><span class="ms">14 ms</span></div>
             <div class="rail"></div>
             <div class="step"><span class="dot"></span><span class="lbl">Classify &amp; Dedupe <span class="mono" style="color:var(--ink-faint)">→ booking</span></span><span class="ms">104 ms</span></div>
             <div class="rail"></div>
@@ -399,9 +399,9 @@
   </section>
 
   <footer>
-    <span>~/.claude/n8n/crea/</span>
+    <span>crea's automations / n8n</span>
     <span>TEST-REPORT.md</span>
     <span>test/mock-services.js</span>
-    <span>hub: outputs/n8n/crea/</span>
+    <span>go-live.sh</span>
   </footer>
 </div>

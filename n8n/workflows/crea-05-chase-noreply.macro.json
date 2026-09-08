@@ -2,11 +2,10 @@
   "id": "creachasenoreply",
   "name": "CREA — Chase Non-Replies (Macro)",
   "meta": {
-    "trisFamily": "outbound_sequencer",
-    "trisMode": "macro",
-    "trisVertical": "crea",
-    "trisNote": "Runs a few times through the day. Reads the tracker 'Pending' tab; for rows still unconfirmed and overdue, sends one more WhatsApp nudge (max 2), then after the 2nd nudge tells the owner to phone the client. CREA — WhatsApp Inbound Capture flips 'confirmed' to true when a reply lands.",
-    "trisAtoms": [
+    "family": "outbound_sequencer",
+    "mode": "macro",
+    "note": "Runs a few times through the day. Reads the vault API pending list; for rows still unconfirmed and overdue, sends one more WhatsApp nudge (max 2), then after the 2nd nudge tells the owner to phone the client. crea-01 flips 'confirmed' to true when a reply lands.",
+    "steps": [
       "schedule",
       "read_pending",
       "filter_overdue",

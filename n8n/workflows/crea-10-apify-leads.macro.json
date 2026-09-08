@@ -2,11 +2,10 @@
   "id": "creaapifyleads",
   "name": "CREA — Apify Leads (Macro)",
   "meta": {
-    "trisFamily": "scrape_enrich_extract",
-    "trisMode": "macro",
-    "trisVertical": "crea",
-    "trisNote": "Daily 07:00. Runs an Apify actor that scrapes fresh listings for the target area, dedupes against the tracker 'Leads' tab, appends new agents/listings as leads, and WhatsApps the owner a short digest of who to reach out to.",
-    "trisAtoms": [
+    "family": "scrape_enrich_extract",
+    "mode": "macro",
+    "note": "Daily 07:00. Runs an Apify actor that scrapes fresh listings for the target area, dedupes against the tracker 'Leads' tab, appends new agents/listings as leads, and WhatsApps the owner a short digest of who to reach out to.",
+    "steps": [
       "schedule",
       "run_actor",
       "read_known",

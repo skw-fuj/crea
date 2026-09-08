@@ -7,8 +7,16 @@ cd "$(dirname "$0")/.."
 N8N=http://localhost:5678
 
 activate(){ for id in "$@"; do n8n update:workflow --id="$id" --active=true >/dev/null 2>&1 || true; done; }
-restart(){ launchctl kickstart -k "gui/$(id -u)/com.tris.n8n" >/dev/null 2>&1 || true
-  for i in $(seq 1 30); do [ "$(curl -s -o /dev/null -w '%{http_code}' $N8N/healthz)" = "200" ] && break; sleep 2; done; sleep 3; }
+restart(){ lbl=$(launchctl list 2>/dev/null | awk 'tolower($3) ~ /n8n/ {print $3; exit}'); [ -n "$lbl" ] && launchctl kickstart -k "gui/$(id -u)/$lbl" >/dev/null 2>&1 || true
+  for i in $(seq 1 30); do [ "$(curl -s -o /dev/null -w '%{http_code}' $N8N/healthz)" = "200" ] && break; sleep 2; done
+  # healthz is up before the webhooks + sub-workflow registry are warm. Poll the real
+  # inbound webhook with a throwaway message until it round-trips, then settle.
+  for i in $(seq 1 20); do
+    code=$(curl -s -o /dev/null -w '%{http_code}' -X POST $N8N/webhook/crea-wa-inbound \
+      -H 'content-type: application/json' \
+      -d '{"event":"message","session":"default","payload":{"id":"warmup","from":"60000000000@c.us","body":"warmup","fromMe":true,"type":"chat"}}')
+    [ "$code" = "200" ] && break; sleep 2
+  done; sleep 5; }
 
 if [ "${1:-}" = "revert" ]; then
   echo "reverting to delivery state…"
@@ -24,7 +32,7 @@ echo "1/4  mock services…"
 pkill -9 -f "test/mock-services.js" 2>/dev/null || true; sleep 1
 CREA_KB_FILE=$PWD/test/crea-knowledge.test.md node test/mock-services.js > /tmp/crea-mock.log 2>&1 &
 disown; sleep 2
-python3 ~/.claude/registry/cheap.py "warmup" >/dev/null 2>&1 || true
+
 curl -sf localhost:5699/waha/api/version >/dev/null && echo "     up on :5699"
 
 echo "2/4  fill test config + import…"
@@ -34,7 +42,7 @@ n8n import:workflow --separate --input=workflows/_filled/ >/dev/null 2>&1
 
 echo "3/4  activate + restart n8n…"
 activate creawasend creawainbound creabookingagent creaaiassistant creaacuityintake creacardpipeline \
-         creashootconfirm creachasenoreply creamondayinvoice creamorningbrief creaapifyleads trisglobalerrhdlr
+         creashootconfirm creachasenoreply creamondayinvoice creamorningbrief creaerrorhandler creaapifyleads
 restart
 
 echo "4/4  drive traffic…"
@@ -43,9 +51,8 @@ msg(){ curl -s -o /dev/null -X POST $N8N/webhook/crea-wa-inbound -H 'content-typ
   -d "{\"event\":\"message\",\"session\":\"default\",\"payload\":{\"id\":\"$1\",\"from\":\"$2@c.us\",\"body\":\"$3\",\"fromMe\":false,\"type\":\"chat\"}}"; }
 
 # --- AI assistant (default handler): real model, ~25s/turn ---
+# State starts empty: the mock's /vault/state returns {} for a new key, so no seed needed.
 A=61400556677
-curl -s -X POST http://127.0.0.1:5691/state -H 'content-type: application/json' \
-  -d "{\"key\":\"$A\",\"transcript\":[],\"brief\":{},\"mode\":null,\"stage\":null,\"booking_ready\":false}" >/dev/null
 msg ai1 $A "Hi, how much is a listing video for a 3 bedroom house?";      sleep 25
 msg ai2 $A "Its 40 Awaba St, Mosman. Are you free this Saturday?";        sleep 25
 msg ai3 $A "Lets do it. Owner home, side gate open.";                     sleep 25

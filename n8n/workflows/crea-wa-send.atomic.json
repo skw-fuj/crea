@@ -2,11 +2,10 @@
   "id": "creawasend",
   "name": "CREA — WA Send (WAHA atomic)",
   "meta": {
-    "trisFamily": "cross-cutting",
-    "trisMode": "atomic",
-    "trisVertical": "crea",
-    "trisNote": "The ONLY place CREA talks to WhatsApp. Swap gateway here (WAHA -> Evolution -> Meta Cloud API) without touching any other workflow. Input item: { to, text }. 'to' may be bare digits or a full <n>@c.us chatId.",
-    "trisAtoms": [
+    "family": "cross-cutting",
+    "mode": "atomic",
+    "note": "The ONLY place CREA talks to WhatsApp. Swap gateway here (WAHA -> Evolution -> Meta Cloud API) without touching any other workflow. Input item: { to, text }. 'to' may be bare digits or a full <n>@c.us chatId.",
+    "steps": [
       "normalize_recipient",
       "send_text",
       "return_result"

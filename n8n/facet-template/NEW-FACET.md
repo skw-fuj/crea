@@ -14,7 +14,7 @@ degrade when the model is down.
 | `facet-scheduled-digest.macro.json` | cron → pull a source → optional LLM phrasing → deliver. For "send me a summary every morning". |
 
 For anything more (multi-step qualification, scrape→enrich, a full pipeline) start from the
-matching macro in the TRIS OS families at `~/.claude/n8n/workflows/` — see `../../COMPOSITION.md`.
+matching macro in the CREA workflows in `../workflows/` as a starting point.
 
 ## Stand one up
 

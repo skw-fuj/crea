@@ -149,48 +149,6 @@
     },
     {
       "parameters": {
-        "operation": "append",
-        "documentId": {
-          "__rl": true,
-          "value": "{{CREA_TRACKER_SHEET_ID}}",
-          "mode": "id"
-        },
-        "sheetName": {
-          "__rl": true,
-          "value": "{{CREA_TRACKER_TAB}}",
-          "mode": "name"
-        },
-        "columns": {
-          "mappingMode": "defineBelow",
-          "value": {
-            "jobId": "={{ $json.jobId }}",
-            "client": "={{ $json.client }}",
-            "phone": "={{ $json.phone }}",
-            "address": "={{ $json.address }}",
-            "type": "={{ $json.type }}",
-            "datetime": "={{ $json.datetime }}",
-            "status": "booked",
-            "invoiced": "false",
-            "amount": "={{ $json.price }}"
-          }
-        },
-        "options": {}
-      },
-      "id": "sheet",
-      "name": "Tracker Row",
-      "type": "n8n-nodes-base.googleSheets",
-      "typeVersion": 4.5,
-      "position": [
-        1200,
-        380
-      ],
-      "onError": "continueRegularOutput",
-      "retryOnFail": true,
-      "maxTries": 2,
-      "disabled": true
-    },
-    {
-      "parameters": {
         "workflowId": {
           "__rl": true,
           "value": "creawasend",
@@ -280,6 +238,6 @@
   },
   "settings": {
     "executionOrder": "v1",
-    "errorWorkflow": "{{GLOBAL_ERROR_HANDLER_ID}}"
+    "errorWorkflow": "creaerrorhandler"
   }
 }

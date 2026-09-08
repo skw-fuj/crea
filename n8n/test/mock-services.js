@@ -72,6 +72,7 @@ const server = http.createServer(async (req, res) => {
 
   // ---- vault API ----
   if (path.startsWith('/vault/')) {
+    if (path === '/vault/state') { if (req.method==='GET') return send(res,200,{}); return send(res,200,{...(payload||{}),updatedAt:new Date().toISOString()}); }
     if (path === '/vault/knowledge')
       return send(res, 200, { chunks: knowledge(u.searchParams.get('q')) });
     if (path === '/vault/jobs') {

@@ -22,7 +22,18 @@ const VAULT_DIR = path.resolve(process.env.VAULT_DIR || path.join(__dirname, 'da
 const KB_FILE = path.resolve(process.env.KNOWLEDGE_FILE || path.join(__dirname, '..', 'knowledge', 'crea-knowledge.md'));
 const ACUITY = { uid: process.env.ACUITY_USER_ID, key: process.env.ACUITY_API_KEY, type: process.env.ACUITY_APPT_TYPE_ID };
 
-for (const d of ['jobs', 'leads', 'inbox', 'shoots', 'invoices', 'pending']) fs.mkdirSync(path.join(VAULT_DIR, d), { recursive: true });
+for (const d of ['jobs', 'leads', 'inbox', 'shoots', 'invoices', 'pending', 'state', 'alerts']) fs.mkdirSync(path.join(VAULT_DIR, d), { recursive: true });
+
+// conversation state — key/value, merged on write. Replaces the separate state-store service.
+const STATE_DIR = path.join(VAULT_DIR, 'state');
+function stateGet(key) { const p = path.join(STATE_DIR, jslug(key) + '.json'); try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch { return {}; } }
+function stateSet(patch) {
+  const key = patch.key; if (!key) throw new Error('state write needs a key');
+  const cur = stateGet(key);
+  const next = { ...cur, ...patch, updatedAt: new Date().toISOString() };
+  fs.writeFileSync(path.join(STATE_DIR, jslug(key) + '.json'), JSON.stringify(next, null, 2));
+  return next;
+}
 
 // ---------- helpers ----------
 const jslug = s => String(s || 'x').replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').slice(0, 60).toLowerCase();
@@ -107,6 +118,13 @@ const server = http.createServer(async (req, res) => {
 
     if (p === '/knowledge') return send(res, 200, knowledge(q.get('q')));
     if (p === '/availability') return send(res, 200, await availability());
+
+    // conversation state (was a separate service)
+    if (p === '/state' && !isPost) return send(res, 200, stateGet(q.get('key')));
+    if (p === '/state' && isPost) return send(res, 200, stateSet(data));
+
+    // failure alerts from the error handler
+    if (p === '/alert' && isPost) { writeNote('alerts', 'alert-' + Date.now(), data); return send(res, 200, { ok: true }); }
 
     if (p === '/job' && isPost) return send(res, 200, writeNote('jobs', data.jobId || 'job-' + Date.now(), data));
     if (p === '/job/invoiced' && isPost) return send(res, 200, mergeNote('jobs', data.jobId, { invoiced: data.invoiced || 'draft' }));

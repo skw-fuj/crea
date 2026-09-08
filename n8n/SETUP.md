@@ -1,267 +1,148 @@
 # CREA — n8n Hands Layer · Setup
 
-The n8n half of CREA (per the [Build Manual](https://skw-fuj.github.io/crea/) §"Technical
-Architecture" → *Hands Layer*). Deterministic workflows; brain (Hermes/OmniRoute) and memory
-(Obsidian vault) stay outside n8n and are reached over HTTP.
+The n8n layer of CREA: a WhatsApp AI booking assistant plus the shoot-ops automations.
+n8n runs the workflows; an OpenAI-compatible LLM (OmniRoute) and a small local **vault API**
+(shipped in `vault-api/`) provide the brain and the memory. No external database, no Google
+account required to start.
 
-Built and structurally verified against n8n **2.30.7** in the local instance. Every
-account-specific value is a `{{CREA_*}}` token resolved by `fill-config.sh` — nothing is
-hardcoded.
+Built and verified end-to-end against n8n **2.30.7** and a live model — see `TEST-REPORT.md`
+and `test/run-report.html`.
 
 ---
-
-## Handing it to the client
-
-`HANDOVER.md` is written for Connell — a 10-minute gather list, then one prompt he pastes
-into his own Claude Code that does the whole setup. Give him that file (it ships in `repo/n8n/`).
 
 ## Ship it — one command
 
 ```bash
-cd ~/.claude/n8n/crea
-cp config.example.env config.env    # edit: CREA_OWNER_WA, CREA_WAHA_API_KEY, CREA_OMNIROUTE_URL/KEY
+cd n8n
+cp config.example.env config.env      # fill the REQUIRED values (see the file)
 ./go-live.sh
 ```
 
-`go-live.sh` starts the **vault API** (`vault-api/server.js` — real service, no deps: knowledge
-from `knowledge/crea-knowledge.md`, availability from Acuity, job/lead/inbox notes written to
-`vault-api/data/` as JSON + markdown), fills the workflows, imports and activates them, and
-restarts n8n. It then prints the 3 things only you can do (they need your accounts):
+`go-live.sh`:
+1. starts the **vault API** (`vault-api/server.js`)
+2. substitutes `config.env` into the workflows
+3. binds any `CREA *` credentials that already exist to the auth nodes
+4. imports and activates all 12 workflows
+5. restarts n8n
+6. prints the steps that need your accounts
 
-  a. **WhatsApp** — `cd waha && docker compose up -d`, scan the QR at `localhost:3001`
-  b. **Credentials** in n8n — select `CREA OmniRoute`, `CREA Acuity`, `CREA Higgsfield`
-  c. **Acuity webhook** → `…/webhook/crea-acuity`
+`./go-live.sh --status` shows what's running · `--stop` stops the vault API.
 
-`./go-live.sh --status` shows what's up · `--stop` stops the vault API.
-Verified end-to-end 2026-09-08: real vault API + shipped knowledge file + a live model —
-a full booking conversation captured the brief and wrote the lead note to disk.
-
----
-
-## 0. What's in here
-
-```
-crea/
-  config.example.env          all accounts / keys / endpoints — the ONLY thing you edit
-  fill-config.sh              config.env  ->  workflows/_filled/*.json
-  waha/                       WhatsApp gateway (Docker)
-  workflows/                  the 10 CREA workflows (templates, with {{CREA_*}} tokens)
-  facet-template/             generic reusable shape for any future facet + NEW-FACET.md
-  SETUP.md                    this file
-```
-
-| Workflow | Trigger | Connect | Purpose |
-|---|---|---|---|
-| `crea-wa-send` (`creawasend`) | called by others | WAHA | the one place WhatsApp is sent — swap gateway here only |
-| `crea-01-whatsapp-inbound` | WAHA webhook | WAHA, state store | front door: dedupe, route booking chats to the agent, else vault inbox + owner ping |
-| `crea-02-booking-agent` | called by 01 | state store, vault API | **deterministic** shoot-brief qualifier (fixed 5 questions) — the fallback path |
-| `crea-02b-ai-assistant` | called by 01 (**default**) | state store, vault API, OmniRoute, Acuity | **AI** assistant: answers from the knowledge base, checks availability read-only, captures the brief conversationally, hands to owner when quote-ready or stuck; **falls through to `crea-02` if OmniRoute is down** |
-| `crea-03-acuity-intake` | Acuity webhook | Acuity (Basic Auth), Google Calendar, Google Sheets, vault API | new booking → job record + calendar event + tracker row |
-| `crea-04-shoot-confirmations` | daily 17:00 | Acuity, Google Sheets | WhatsApp-confirm tomorrow's shoots, record on `Pending` tab |
-| `crea-05-chase-noreply` | 09/12/15 daily | Google Sheets | nudge unconfirmed (max 2), then tell owner to call |
-| `crea-06-card-pipeline` | webhook from CREA card-detect | Google Drive, Higgsfield, vault API | split by capture gap → Drive folders → **human gate** → Higgsfield → notify editor |
-| `crea-07-monday-invoicing` | Mon 09:00 | Google Sheets, vault API | draft invoices for completed unpaid jobs (**draft only, never sends**) |
-| `crea-08-morning-briefing` | daily 06:30 | Acuity, Google Sheets, OmniRoute | "what to focus on" briefing to owner |
-| `crea-10-apify-leads` | daily 07:00 | Apify, Google Sheets | new listing leads → `Leads` tab + digest |
-
-All are **inactive on import**. Activate deliberately, one at a time, after testing.
+**If you're handing this to someone:** give them `HANDOVER.md` — a short gather list, then one
+prompt to paste into Claude Code that does all of the above.
 
 ---
 
-## 1. Prerequisites
+## The workflows
 
-- **Docker Desktop running** (for WAHA). `docker info` must succeed.
-- **n8n running** — `n8n start` → http://localhost:5678 (owner account already set up on this Mac).
-- Accounts: the friend's **WhatsApp** (phone in hand for the QR), **Acuity**, **Google**
-  (Calendar + Drive + Sheets), **Higgsfield**, **Apify**. All optional to start — a workflow
-  you haven't wired just stays inactive.
-- **OmniRoute** running locally (OpenAI-compatible endpoint) for the LLM steps.
-- A **vault API** — see §5. Until it exists, the `vault` steps fail softly (they're
-  `continueErrorOutput`) and the rest of each workflow still runs.
-
----
-
-## 2. WhatsApp gateway (WAHA)
-
-```bash
-cd ~/.claude/n8n/crea/waha
-cp .env.example .env
-# edit .env: set WAHA_API_KEY to a long random string
-docker compose up -d
-open http://localhost:3001            # dashboard
-```
-
-In the dashboard: **Sessions → default → Start**, then scan the QR from the phone
-(WhatsApp → Linked Devices). CREA now reads/sends as a linked device — the number stays a
-normal WhatsApp account. *(Run it with your own number first; re-pair with the friend's
-later — one QR scan.)*
-
-**Risk (from the manual):** unofficial library, small chance of number restriction. The
-safer variant is a second SIM dedicated to CREA.
-
-WAHA posts inbound events to `WHATSAPP_HOOK_URL` in `.env` — already set to
-`http://host.docker.internal:5678/webhook/crea-wa-inbound`.
-
----
-
-## 3. Fill config & import
-
-```bash
-cd ~/.claude/n8n/crea
-cp config.example.env config.env
-#   edit config.env — every value. CREA_OWNER_WA = your number (digits only) for now.
-./fill-config.sh
-n8n import:workflow --separate --input=workflows/_filled/
-```
-
-Re-run `fill-config.sh` + import any time you change `config.env` (import upserts by id —
-your edits in the n8n editor are overwritten, so make config changes in the file).
-
-> The **template** copies (with raw `{{CREA_*}}` tokens) are already imported for structural
-> review. Importing `_filled/` overwrites them in place with the real values.
-
----
-
-## 4. Connect credentials in n8n
-
-Open each workflow, click the coloured nodes, pick/create the credential:
-
-| Credential (n8n) | Type | Used by |
+| Workflow | Trigger | Purpose |
 |---|---|---|
-| **CREA Acuity** | HTTP Basic Auth — user = `CREA_ACUITY_USER_ID`, pass = `CREA_ACUITY_API_KEY` | Get Appointment(s) |
-| **CREA Google** | Google OAuth2 (Calendar + Drive + Sheets scopes) | Calendar Event, Tracker Row, Drive folders |
-| **CREA OmniRoute** | HTTP Header Auth — `Authorization: Bearer <CREA_OMNIROUTE_KEY>` | Compose (OmniRoute), LLM Answer |
-| **CREA Higgsfield** | HTTP Header Auth — key from Higgsfield settings | Push to Higgsfield |
+| `crea-00-error-handler` | any workflow fails | normalises the failure, POSTs it to `CREA_ALERT_WEBHOOK_URL` + records it in the vault |
+| `crea-wa-send` | called | the one place WhatsApp is sent — swap the gateway here only |
+| `crea-01-whatsapp-inbound` | WAHA webhook | dedupe, route booking chats to the assistant, everything else → vault inbox + owner ping |
+| `crea-02b-ai-assistant` | booking chat (default) | answers from the knowledge base, checks availability read-only, captures the shoot brief, hands the owner a quote-ready enquiry. **Falls through to `crea-02` if the LLM is unreachable.** |
+| `crea-02-booking-agent` | AI fallback | fixed 5-question qualifier |
+| `crea-03-acuity-intake` | Acuity webhook | new booking → vault job note + owner ping. (Google Calendar node is present but **disabled** — opt-in.) |
+| `crea-04-shoot-confirmations` | 17:00 daily | WhatsApp-confirm tomorrow's shoots; record each on the vault `/pending` list |
+| `crea-05-chase-noreply` | 09/12/15 daily | nudge unconfirmed clients (max 2), then tell the owner to call |
+| `crea-06-card-pipeline` | card-detect webhook | split footage by capture gap → **human gate** → Higgsfield → notify editor. (Drive-folder node **disabled** — opt-in.) |
+| `crea-07-monday-invoicing` | Mon 09:00 | draft invoices for completed unpaid jobs — **never sends** |
+| `crea-08-morning-briefing` | 06:30 daily | "what to focus on" over WhatsApp |
+| `crea-10-apify-leads` | 07:00 daily | new listing leads → digest |
 
-WAHA and Apify auth travel in the request (API key header / token query) — no n8n credential.
-
----
-
-## 5. Vault API contract (Hermes or a tiny writer service) — the job store
-
-The workflows use `CREA_VAULT_API_URL` as the **job tracker + memory** (not Google Sheets —
-that validation-blocks without a Google credential and doesn't fit CREA's vault-is-memory
-model). Implement these (all JSON). A ~80-line Flask/Express service is enough; or Hermes
-exposes them. Same shape as the state-store on `:5691`. `test/mock-services.js` is a working
-reference implementation.
-
-| Method / path | Body / query | Used by |
-|---|---|---|
-| `POST /job` | `{jobId, client, phone, address, type, datetime, price, notes, ...}` | crea-03 |
-| `POST /job/invoiced` | `{jobId, invoiced:"draft"}` | crea-07 |
-| `POST /lead` | `{source, from, brief, status}` | crea-02 |
-| `POST /inbox` | `{channel, from, text, type, receivedAt}` | crea-01 |
-| `POST /shoots` | `{cardId, shootIndex, start, fileCount, folderName}` | crea-06 |
-| `POST /invoice-draft` | `{jobId, client, amount, ...}` — creates a **draft** note, never sends | crea-07 |
-| `POST /pending` | `{phone, jobId, client, sentAt, chases, confirmed}` | crea-04 |
-| `GET  /pending` | → array of pending confirmation rows | crea-05 |
-| `POST /pending/update` | `{jobId, chases, lastChaseAt}` | crea-05 |
-| `POST /leads` | one lead object (auto-mapped) | crea-10 |
-| `GET  /leads` | → array of known leads `[{key,...}]` for dedupe | crea-10 |
-| `GET  /jobs` | → jobs array (briefing counts unpaid/leads) | crea-08 |
-| `GET  /jobs?filter=billable` | → completed & not-yet-invoiced jobs | crea-07 |
-| `GET  /knowledge?q=` | → `{chunks:[...]}` for LLM grounding | facet-template |
-
-## 5c. The AI booking assistant (`crea-02b`)
-
-**`crea-01` routes booking-tagged messages to whatever `CREA_BOOKING_WORKFLOW_ID` names**
-— `creaaiassistant` (default) or `creabookingagent` (deterministic). An in-progress
-conversation stays with the same handler until it closes.
-
-The AI assistant:
-- **answers only from `knowledge/crea-knowledge.md`** — served via `GET {CREA_VAULT_API_URL}/knowledge?q=`.
-  It ships usable — coverage area, process, turnaround, FAQ are real; prices say "quote on
-  request" until you add numbers to one table. Anything the file does not cover → "someone
-  will follow up" + owner ping. `knowledge/EXAMPLE-filled.md` shows a completed one.
-- **quotes a price only if it's verbatim in the file** — otherwise "I'll get you an exact quote".
-- **checks Acuity availability read-only** (`GET {CREA_ACUITY_BASE}/availability` → busy blocks)
-  and never confirms a slot — "that looks open, {owner} will confirm".
-- **builds the brief across turns** (service, property, address, preferred_date, access, notes),
-  transcript + brief in the state store (last 12 turns), not model memory.
-- **hands to the owner** with the full brief when `booking_ready` (service + address + date) or
-  when it can't help.
-- **hands the live conversation to the deterministic qualifier** (crea-02) the moment
-  OmniRoute is unreachable or returns junk — the customer just gets the structured 5-question
-  flow instead, no dropped thread. The two genuinely work together, AI leading.
-
-Verified 2026-09-08 against a live free-tier model: quoted `$450` from the KB, checked
-Saturday availability, captured `{service, property, address, preferred_date, access}`, handed
-off `status: to-quote`. Off-KB questions and unpriced items correctly went to a human.
-
-**Availability endpoint** the vault/Acuity side must provide:
-`GET {CREA_ACUITY_BASE}/availability` → `{ busy: [{date,from,to}], note: "..." }` for the next
-~2 weeks. Acuity's own `/availability/times` can back this, or compute it from `/appointments`.
-
-## 5b. Google Calendar + Drive — opt-in
-
-`crea-03` (Calendar Event, Tracker Row) and `crea-06` (Create Drive Folder) ship **disabled**
-— the Google Calendar node hard-fails workflow validation with no credential attached. After
-you create the `CREA Google` credential: enable those nodes, select the credential, and in
-`crea-06` wire `Split by Capture Gap → Create Drive Folder → Record Shoots` and add
-`driveFolderId` back to the Record Shoots + Higgsfield bodies.
+`crea-01` routes booking messages to whatever `CREA_BOOKING_WORKFLOW_ID` names —
+`creaaiassistant` (default) or `creabookingagent`.
 
 ---
 
-## 6. Wire the external webhooks
+## config.env
 
-| Source | Point at |
+Every `{{CREA_*}}` token in the workflow JSON is filled from `config.env`. `config.example.env`
+marks each value **REQUIRED** or optional and carries a comment. The required ones:
+
+| Value | What |
 |---|---|
-| WAHA | `…/webhook/crea-wa-inbound` (set in `waha/.env`) |
-| Acuity | Business Settings → Integrations → Webhooks → `appointment.scheduled` → `http://<n8n>/webhook/crea-acuity` |
-| CREA card-detect script | `POST http://<n8n>/webhook/crea-card` with `{cardId, files:[{name,path,capturedAt,size}]}` |
-| Card-pipeline approval | the owner taps the `resumeUrl` link in the WhatsApp prompt — no setup |
+| `CREA_OWNER_WA` | your WhatsApp, digits only — booking alerts + briefings land here |
+| `CREA_WAHA_API_KEY` | a random string you invent; the same one goes in `waha/.env` |
+| `CREA_OMNIROUTE_URL` + `CREA_OMNIROUTE_KEY` | an OpenAI-compatible chat-completions endpoint + its key |
 
-`<n8n>` = `localhost:5678` locally. On the Mac Mini it's the Mini's LAN address or a
-Tailscale hostname (the manual already uses Tailscale).
+Everything else can stay blank — the workflow that needs it just won't run until you fill it.
 
 ---
 
-## 7. Test order
+## The vault API (`vault-api/server.js`)
 
-1. **crea-wa-send** — Executions → *Execute Workflow* with `{"to":"<your number>","text":"CREA test"}`. Expect the WhatsApp to arrive.
-2. **crea-01** — send yourself a WhatsApp from another phone; watch the execution; non-booking text → owner ping, "need video quote" → booking agent replies.
-3. **crea-02** — continue that booking chat through all 5 questions; confirm the brief hits `POST /lead`.
-4. **crea-03** — book a test slot in Acuity; check calendar event + tracker row appear.
-5. **crea-04** — set the schedule 2 min ahead temporarily; confirm tomorrow's test booking gets a WhatsApp + a `Pending` row.
-6. **crea-05 / 07 / 08 / 10** — run manually (disable the schedule), verify the WhatsApp summary.
-7. **crea-06** — `POST /webhook/crea-card` a fake manifest; approve via the link; check Drive folders (Higgsfield step needs the real API — see §9).
-8. Activate each only once its test passes.
+Zero-dependency Node service that `go-live.sh` starts on `:5692`. It is the memory + job store
++ knowledge + availability + conversation state, all backed by plain files under
+`vault-api/data/` (JSON + a readable markdown mirror). Hermes can read the same files.
+
+| Method / path | Used by |
+|---|---|
+| `GET /knowledge?q=` | crea-02b — section retrieval over `knowledge/crea-knowledge.md` |
+| `GET /availability` | crea-02b — calls the real Acuity API if `CREA_ACUITY_*` are set, else a sane default |
+| `GET/POST /state` | crea-01/02/02b — conversation state + transcript, merged on write |
+| `POST /job` · `POST /job/invoiced` · `GET /jobs?filter=billable` | crea-03, crea-07 |
+| `POST /lead` · `POST /leads` · `GET /leads` | crea-02/02b, crea-10 |
+| `POST /inbox` | crea-01 |
+| `POST /pending` · `GET /pending` · `POST /pending/update` | crea-04, crea-05 |
+| `POST /shoots` · `POST /invoice-draft` | crea-06, crea-07 |
+| `POST /alert` | crea-00 |
+
+To back knowledge with the full Obsidian vault later instead of the one file, point
+`CREA_VAULT_API_URL` at Hermes exposing the same routes — nothing else changes.
 
 ---
 
-## 8. Move to the friend's Mac Mini
+## The knowledge file (`knowledge/crea-knowledge.md`)
 
-Workflows are portable. On the Mini:
+The assistant answers **only** from this file, and quotes a price **only** where a real number
+sits in its table. It ships usable — coverage area, booking process, turnaround and FAQ are
+real; the Price column is blank, so the assistant says "I'll get you an exact quote" until you
+fill it. `knowledge/EXAMPLE-filled.md` shows a completed one. Edit it like any document; no
+restart needed.
+
+---
+
+## Credentials in n8n
+
+`go-live.sh` binds these automatically **once they exist**. Create them (or let the
+`HANDOVER.md` prompt do it):
+
+| Credential | Type | For |
+|---|---|---|
+| `CREA OmniRoute` | HTTP Header Auth — `Authorization: Bearer <key>` | the AI node |
+| `CREA Acuity` | HTTP Basic Auth — user = Acuity User ID, pass = Acuity API Key | crea-03/04/08 (optional) |
+| `CREA Higgsfield` | HTTP Header Auth — `X-Api-Key: <key>` | crea-06 (optional) |
+| `CREA Google` | Google OAuth2 | only if you enable the disabled Calendar/Drive nodes |
+
+WAHA and Apify auth travel in the request — no n8n credential.
+
+---
+
+## The two things only you can do
+
+- **Scan the WhatsApp QR** — `cd waha && cp .env.example .env` (set `WAHA_API_KEY`), then
+  `docker compose up -d`, open `localhost:3001`, Sessions → default → Start, scan with
+  WhatsApp → Linked Devices. Unofficial link — a second SIM is the safer variant.
+- **Paste the Acuity webhook** into Acuity → Integrations → Webhooks, event
+  `appointment.scheduled`, URL `<your n8n>/webhook/crea-acuity`.
+
+---
+
+## Test it
+
 ```bash
-n8n import:workflow --separate --input=workflows/_filled/
+node test/mock-services.js &          # stands in for WAHA + the LLM, captures every call
+./test/demo.sh                        # runs the AI conversation + the scheduled workflows
+./test/demo.sh revert                 # restore clean templates, stop the mock
 ```
-Then re-point the **base-URL-dependent** bits:
-- `config.env` → `CREA_N8N_BASE_URL`, `CREA_WAHA_URL` (if WAHA also moves)
-- WAHA `.env` `WHATSAPP_HOOK_URL`
-- Acuity webhook URL
-- Google OAuth redirect URI (add the Mini's URL in Google Cloud console)
-- CREA card-detect script's target URL
 
-Re-run `fill-config.sh` + import. Re-select credentials (they don't travel in the JSON).
+`TEST-REPORT.md` has the full verification run and the bug classes it caught.
 
----
+## Known opt-ins
 
-## 9. Known gaps (finish before "live")
-
-- **Higgsfield API** — `CREA_HIGGSFIELD_URL` + payload in `crea-06` are a placeholder shape;
-  set the real endpoint/body from Higgsfield's API docs once you have access.
-- **Acuity address field** — `crea-03` "Build Job" guesses the form field name contains
-  "address"/"property". Adjust `pick('address')` to the real intake-form field label.
-- **switch / if nodes** — open `crea-01` (Route by Target) and `crea-02` (Brief Complete?)
-  once in the editor and re-save; n8n backfills condition IDs on first open.
-- **OmniRoute response shape** — `crea-08` / facet-assistant read `choices[0].message.content`
-  (OpenAI shape). Adjust "Extract Text" if OmniRoute wraps differently.
-- **Alert webhook** — set `ALERT_WEBHOOK_URL` so the TRIS OS Global Error Handler (layer 3)
-  actually delivers failure alerts.
-
----
-
-## 10. Repo drop for `skw-fuj/crea`
-
-`repo/` mirrors this into the CREA repo layout — commit it under `n8n/` there. It carries the
-same workflows + a short README; the friend runs `fill-config.sh` on the Mini.
+- **Google Calendar / Drive** — `crea-03` Calendar and `crea-06` Drive nodes ship disabled
+  (the Calendar node hard-fails workflow validation with no credential). Enable them and pick
+  `CREA Google` if you want them.
+- **Higgsfield API shape** — `crea-06`'s Higgsfield node uses a generic project-intake POST;
+  confirm the exact endpoint/body against your Higgsfield account.

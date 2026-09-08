@@ -31,18 +31,20 @@ if [ ! -f config.env ]; then
   warn "  (at minimum: CREA_OWNER_WA, CREA_WAHA_API_KEY, CREA_OMNIROUTE_URL/KEY)"
   exit 1
 fi
-missing=$(grep -E '^CREA_(OWNER_WA|WAHA_API_KEY|OMNIROUTE_URL)=$' config.env || true)
-[ -n "$missing" ] && { warn "these are still blank in config.env:"; echo "$missing" | sed 's/^/     /'; warn "fill them and re-run"; exit 1; }
-ok "config.env present"
+missing=$(grep -E '^CREA_(OWNER_WA|WAHA_API_KEY|OMNIROUTE_URL|OMNIROUTE_KEY)=[[:space:]]*(#.*)?$' config.env | sed 's/[[:space:]]*#.*//' || true)
+[ -n "$missing" ] && { warn "these REQUIRED values are still blank in config.env:"; echo "$missing" | sed 's/^/     /'; warn "fill them and re-run ./go-live.sh"; exit 1; }
+ok "config.env — required values set"
 
 say "2/5  vault API"
 if curl -sf "http://127.0.0.1:$VAULT_PORT/health" >/dev/null 2>&1; then
   ok "already running on :$VAULT_PORT"
 else
-  # pass Acuity creds through so /availability is real
-  eval "$(grep -E '^CREA_ACUITY_(USER_ID|API_KEY)=' config.env | sed 's/^CREA_ACUITY_USER_ID/ACUITY_USER_ID/;s/^CREA_ACUITY_API_KEY/ACUITY_API_KEY/')" || true
-  VAULT_API_PORT="$VAULT_PORT" KNOWLEDGE_FILE="$PWD/knowledge/crea-knowledge.md" \
-    ACUITY_USER_ID="${ACUITY_USER_ID:-}" ACUITY_API_KEY="${ACUITY_API_KEY:-}" \
+  # pass Acuity creds + the knowledge-file path through from config.env
+  kb=$(grep -E '^CREA_KNOWLEDGE_FILE=' config.env | sed 's/^CREA_KNOWLEDGE_FILE=//;s/[[:space:]]*#.*//' ); kb="${kb:-knowledge/crea-knowledge.md}"
+  auid=$(grep -E '^CREA_ACUITY_USER_ID=' config.env | sed 's/.*=//;s/[[:space:]]*#.*//')
+  akey=$(grep -E '^CREA_ACUITY_API_KEY=' config.env | sed 's/.*=//;s/[[:space:]]*#.*//')
+  VAULT_API_PORT="$VAULT_PORT" KNOWLEDGE_FILE="$PWD/$kb" VAULT_DIR="$PWD/vault-api/data" \
+    ACUITY_USER_ID="$auid" ACUITY_API_KEY="$akey" \
     nohup node vault-api/server.js > /tmp/crea-vault-api.log 2>&1 &
   sleep 1
   curl -sf "http://127.0.0.1:$VAULT_PORT/health" >/dev/null 2>&1 && ok "started on :$VAULT_PORT (log: /tmp/crea-vault-api.log)" \
@@ -81,10 +83,25 @@ after=$(n8n list:workflow 2>/dev/null | grep -c "^crea" || echo 0)
 ok "workflows in n8n: $after"
 
 say "4/5  activate"
-IDS="creawasend creawainbound creabookingagent creaaiassistant creaacuityintake creacardpipeline creashootconfirm creachasenoreply creamondayinvoice creamorningbrief creaapifyleads"
-for id in $IDS; do n8n update:workflow --id="$id" --active=true >/dev/null 2>&1 || true; done
-n8n update:workflow --id=trisglobalerrhdlr --active=true >/dev/null 2>&1 || true
-ok "activated (restart n8n for webhooks to register)"
+cfg(){ grep -E "^$1=" config.env | sed "s/^$1=//;s/[[:space:]]*#.*//"; }
+# always on — the core booking loop + error handling + invoicing + card pipeline (all self-contained)
+CORE="creaerrorhandler creawasend creawainbound creabookingagent creaaiassistant creamondayinvoice creacardpipeline"
+for id in $CORE; do n8n update:workflow --id="$id" --active=true >/dev/null 2>&1 || true; done
+on="core"
+# Acuity-dependent — only if Acuity is configured
+if [ -n "$(cfg CREA_ACUITY_USER_ID)" ]; then
+  for id in creaacuityintake creashootconfirm creachasenoreply creamorningbrief; do n8n update:workflow --id="$id" --active=true >/dev/null 2>&1 || true; done
+  on="$on + acuity workflows"
+else
+  for id in creaacuityintake creashootconfirm creachasenoreply creamorningbrief; do n8n update:workflow --id="$id" --active=false >/dev/null 2>&1 || true; done
+fi
+# Apify-dependent
+if [ -n "$(cfg CREA_APIFY_TOKEN)" ]; then
+  n8n update:workflow --id=creaapifyleads --active=true >/dev/null 2>&1 || true; on="$on + apify leads"
+else
+  n8n update:workflow --id=creaapifyleads --active=false >/dev/null 2>&1 || true
+fi
+ok "activated: $on   (unconfigured workflows left inactive — re-run go-live.sh after adding their keys)"
 if command -v launchctl >/dev/null && launchctl list 2>/dev/null | grep -q com.tris.n8n; then
   launchctl kickstart -k "gui/$(id -u)/com.tris.n8n" >/dev/null 2>&1 || true
   for i in $(seq 1 30); do curl -sf "$N8N/healthz" >/dev/null 2>&1 && break; sleep 2; done

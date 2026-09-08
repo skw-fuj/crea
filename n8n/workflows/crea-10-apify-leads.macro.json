@@ -234,6 +234,6 @@
   },
   "settings": {
     "executionOrder": "v1",
-    "errorWorkflow": "{{GLOBAL_ERROR_HANDLER_ID}}"
+    "errorWorkflow": "creaerrorhandler"
   }
 }

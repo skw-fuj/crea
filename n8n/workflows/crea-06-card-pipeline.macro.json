@@ -15,7 +15,7 @@
       "higgsfield_push",
       "notify_editor"
     ],
-    "trisSetupNote": "Create Drive Folder is DISABLED by default (needs the CREA Google credential). Enable it and wire Split -> Create Drive Folder -> Record Shoots once Google is connected; then add driveFolderId to the Record Shoots + Higgsfield bodies."
+    "trisSetupNote": "Create Drive Folder is DISABLED by default (needs the CREA Google credential). Enable it and wire Split -> Create Drive Folder -> Record Shoots once Google is connected; then add driveFolderId to the Record Shoots + Higgsfield bodies. 'Push to Higgsfield' ships DISABLED — enable it and set CREA_HIGGSFIELD_URL once you have the Higgsfield API. The editor is still notified either way."
   },
   "nodes": [
     {
@@ -172,7 +172,8 @@
       ],
       "onError": "continueRegularOutput",
       "retryOnFail": true,
-      "maxTries": 2
+      "maxTries": 2,
+      "disabled": true
     },
     {
       "parameters": {
@@ -276,6 +277,6 @@
   },
   "settings": {
     "executionOrder": "v1",
-    "errorWorkflow": "{{GLOBAL_ERROR_HANDLER_ID}}"
+    "errorWorkflow": "creaerrorhandler"
   }
 }

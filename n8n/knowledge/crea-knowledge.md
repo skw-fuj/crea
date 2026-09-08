@@ -1,12 +1,16 @@
 # Cfilms — knowledge base
 
-The AI booking assistant answers **only** from this file. It quotes prices only where a
-number appears here verbatim; everywhere else it says "I'll get you an exact quote" and
-passes you the enquiry. Edit freely — the `## ` headings are how it retrieves sections.
+**This file is the assistant's brain.** It answers customers using **only** what's written
+here. It quotes a price **only** where a real number sits in a table below — anywhere a price
+is blank it says *"I'll get you an exact quote"* and passes the enquiry to you. It never
+invents a price, a date, or a policy.
 
-**Ships usable as-is.** Prices are "quote on request" until you put real numbers in the
-table — the assistant handles that gracefully. Everything else (area, process, turnaround,
-FAQ) is ready.
+Edit it like any document. The `## ` headings are how it finds the right section. Save the
+file — no restart needed. A worked example is in `EXAMPLE-filled.md`.
+
+> **To make it quote prices:** put your numbers in the **Price** column of the table below.
+> That's the only change needed. Leave a cell blank → the assistant says "quote on request"
+> for that item.
 
 ---
 
@@ -15,26 +19,33 @@ FAQ) is ready.
 Cfilms shoots listing **photography, video, drone, and 3D tours** for real estate across
 NW / Lower North Shore Sydney.
 
-| Package | Includes |
-|---|---|
-| Photos | A set of edited listing stills, delivered next business day |
-| Video | A 60–90 second listing film with licensed music; optional agent intro to camera |
-| Photos + Video | Both, booked together |
-| Drone add-on | Aerial stills + a short aerial video sequence |
-| 3D tour | Full interactive walkthrough, hosted |
-| Floor plan | Branded 2D plan |
-| Twilight | A separate visit for exterior twilight shots |
-| Rush | Next-morning delivery |
+| Package | Includes | Price (ex-GST) |
+|---|---|---|
+| Photos | A set of edited listing stills, delivered next business day | |
+| Video | A 60–90 second listing film with licensed music; optional agent intro to camera | |
+| Photos + Video | Both, booked together | |
+| Drone add-on | Aerial stills + a short aerial video sequence | |
+| 3D tour (Matterport) | Full interactive walkthrough, hosted | |
+| Floor plan | Branded 2D plan | |
+| Twilight | A separate visit for exterior twilight shots | |
+| Rush | Next-morning delivery | |
 
-**Pricing:** a firm quote is sent once we have the property address and the scope — it
-depends on property size and the package. Ask the client for the address and what they
-need, and Cfilms will send the quote. *(To have the assistant quote directly, add a
-`| … | $XXX |` price column to the table above.)*
+<!-- Example once filled:
+| Photos | 20 edited stills, next business day | $295 |
+| Video | 60–90s listing film, licensed music | $450 |
+| Photos + Video | both, booked together | $650 |
+| Drone add-on | 5 aerial stills + 20s aerial video | +$150 |
+-->
+
+A firm quote is sent once we have the property **address** and the **scope** — it depends on
+property size and the package.
 
 ## Coverage area
 
 Primary: **NW Sydney, Lower North Shore, Northern Beaches, Inner West.** No travel fee inside
 that. Outside the area is case by case with a travel fee — flag it for a human.
+
+<!-- Adjust the suburbs above to your real service area. -->
 
 ## Turnaround
 
@@ -68,6 +79,8 @@ confirm" and passes the brief across.
 
 Invoice on delivery. Card or bank transfer.
 
+<!-- Change to your real terms (e.g. "7-day terms", "50% deposit"). -->
+
 ## FAQ
 
 **Do you stage or tidy the property?** Light styling only — the property should be
@@ -82,5 +95,7 @@ camera.
 **Do you do commercial / retail / off-market?** Ask a human — it's outside the standard
 packages.
 
-**How do I get the files?** A download link is sent on delivery; files stay available for
-download for a few weeks.
+**How do I get the files?** A download link is sent on delivery; files stay available for a
+few weeks.
+
+<!-- Add or edit questions freely — each "**Question?**" line is retrievable. -->

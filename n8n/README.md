@@ -1,21 +1,19 @@
 # CREA — n8n Hands Layer
 
-The integration layer for CREA: a **WhatsApp AI booking assistant** plus the shoot-ops
-automations (Acuity intake, shoot confirmations, chase, card pipeline, invoicing, morning
-briefing, listing leads). n8n runs the workflows; the brain (OmniRoute) and memory (the
-vault) sit outside and are reached over HTTP.
+A **WhatsApp AI booking assistant** plus the shoot-ops automations (Acuity intake, shoot
+confirmations, chase, card pipeline, invoicing, morning briefing, listing leads). Optional —
+CREA's voice + vault work without it.
 
-Verified end-to-end against a live model on n8n 2.30.7 — see `TEST-REPORT.md` and
-`test/run-report.html`.
+Verified end-to-end against a live model on n8n 2.30.7 — `TEST-REPORT.md`, `test/run-report.html`.
 
 ---
 
-## Setting it up
+## Setup
 
-**If you're Connell:** read **`HANDOVER.md`** — a 10-minute gather list, then one prompt you
-paste into Claude Code that does the whole install.
+**Handing it to someone:** give them **`HANDOVER.md`** — a 10-minute gather list, then one
+prompt they paste into Claude Code that does the whole install.
 
-**Manually:**
+**Yourself:**
 
 ```bash
 cd n8n
@@ -23,11 +21,33 @@ cp config.example.env config.env      # fill: CREA_OWNER_WA, CREA_WAHA_API_KEY, 
 ./go-live.sh
 ```
 
-`go-live.sh` starts the vault API, fills + imports + activates every workflow, restarts n8n,
-and prints the 3 steps only you can do (WhatsApp QR, credential selection, Acuity webhook).
-`./go-live.sh --status` shows what's running · `--stop` stops the vault API.
+Then scan the WhatsApp QR at `localhost:3001` and paste the Acuity webhook. Everything else
+is `go-live.sh`. Full detail in `SETUP.md`.
 
-Full detail — vault API contract, credential list, per-workflow test order — in `SETUP.md`.
+---
+
+## How it fits together
+
+```mermaid
+flowchart LR
+  cust([Customer WhatsApp]) <--> waha[WAHA<br/>Docker :3001]
+  waha -->|webhook| n01[crea-01<br/>inbound router]
+  n01 --> n02b[crea-02b<br/>AI assistant]
+  n02b -.->|LLM down| n02[crea-02<br/>5-question qualifier]
+  n02b --> vapi[(vault API :5692<br/>knowledge · availability<br/>state · jobs · leads)]
+  n02b --> omni[OmniRoute<br/>LLM]
+  n02b --> wsend[crea-wa-send] --> waha
+  n02b -->|quote-ready| owner([Owner WhatsApp])
+  acuity([Acuity]) -->|webhook| n03[crea-03 intake] --> vapi
+  sched{{schedules}} --> n04[confirmations] & n05[chase] & n07[invoicing] & n08[briefing] & n10[leads]
+  n04 & n05 & n07 & n08 & n10 --> wsend
+  card([card-detect]) -->|webhook| n06[crea-06<br/>card pipeline] -->|human gate| higgs([Higgsfield]) --> editor([Editor WhatsApp])
+  anyfail[[any failure]] --> n00[crea-00<br/>error handler] --> vapi
+```
+
+The vault API and OmniRoute are the only running services besides n8n and WAHA. The vault API
+(`vault-api/server.js`, no dependencies) stores everything as plain files under
+`vault-api/data/`.
 
 ---
 
@@ -35,40 +55,31 @@ Full detail — vault API contract, credential list, per-workflow test order —
 
 | Path | |
 |---|---|
-| `workflows/` | 11 workflows (see table below) |
-| `vault-api/server.js` | the memory + job store — real service, no dependencies. `/knowledge`, `/availability`, and the job/lead/inbox/shoots/invoice notes (written to disk as JSON + markdown) |
-| `knowledge/crea-knowledge.md` | what the assistant answers from. Ships usable; add real prices to one table when ready |
-| `waha/` | WhatsApp HTTP API gateway (Docker) — unofficial personal-number pairing per the manual |
+| `workflows/` | 12 workflows (table in `SETUP.md`) |
+| `vault-api/server.js` | memory + job store + knowledge + availability + conversation state — one zero-dep service |
+| `knowledge/crea-knowledge.md` | what the assistant answers from. Ships usable; put prices in one table. `EXAMPLE-filled.md` shows a done one. |
+| `waha/` | WhatsApp gateway (Docker) — unofficial personal-number pairing per the manual |
 | `facet-template/` | the same shape generalised for any other assistant — `NEW-FACET.md` |
-| `config.example.env` | every account/key — the only file you edit |
+| `config.example.env` | every account/key, each marked required/optional |
 | `go-live.sh` · `fill-config.sh` | deploy + config substitution |
 | `HANDOVER.md` · `SETUP.md` · `TEST-REPORT.md` | client handover, full setup, test evidence |
 | `test/` | `mock-services.js` + `demo.sh` — reproduce the verification run offline |
 
-## The workflows
-
-| Workflow | Trigger | Does |
-|---|---|---|
-| `crea-wa-send` | called | the one place WhatsApp is sent — swap the gateway here only |
-| `crea-01-whatsapp-inbound` | WAHA webhook | routes booking chats to the assistant, everything else to the owner |
-| `crea-02b-ai-assistant` | (booking chat, default) | answers from the knowledge base, checks availability read-only (never confirms a slot), captures the shoot brief conversationally, hands the owner a quote-ready enquiry |
-| `crea-02-booking-agent` | AI fallback | fixed 5-question qualifier — takes over automatically if OmniRoute is unreachable |
-| `crea-03-acuity-intake` | Acuity webhook | new booking → job note + owner ping |
-| `crea-04-shoot-confirmations` | 17:00 daily | WhatsApp-confirm tomorrow's shoots |
-| `crea-05-chase-noreply` | 09/12/15 daily | nudge unconfirmed clients (max 2), then tell the owner to call |
-| `crea-06-card-pipeline` | card-detect webhook | split footage by capture gap → Drive folders → **human gate** → Higgsfield → notify editor |
-| `crea-07-monday-invoicing` | Mon 09:00 | draft invoices for completed jobs — **never sends** |
-| `crea-08-morning-briefing` | 06:30 daily | "what to focus on" over WhatsApp |
-| `crea-10-apify-leads` | 07:00 daily | new listing leads → digest |
-
-`crea-01` routes to whichever `CREA_BOOKING_WORKFLOW_ID` names — `creaaiassistant` (default)
-or `creabookingagent`. An in-progress conversation stays with the same handler.
+---
 
 ## Design rules
 
 - Every workflow is a MACRO with named atomic steps (`meta.trisAtoms`); sub-workflows keep it decomposed.
-- Three-layer error handling: node `retryOnFail` + `onError` · a Global Error Handler as the workflow's `errorWorkflow` · a layer-3 alert.
+- Three-layer error handling: node `retryOnFail` + `onError` · `crea-00` as every workflow's `errorWorkflow` · a layer-3 alert.
 - **Placeholders only** — no secrets in the JSON. `fill-config.sh` substitutes `config.env`.
-- Conversation state + transcript live in an external store, **never model memory**.
+- Conversation state + transcript live in the vault API, **never model memory**.
 - The assistant answers **only** from `knowledge/crea-knowledge.md` and never invents a price, a time, or a policy.
 - Money and outbound publishes are human-gated (invoices draft only; card pipeline waits for the owner's OK).
+
+## Why this beats a keyword bot
+
+The instance this was modelled from was a keyword-match chatbot with a Gemini API key
+hardcoded in a node URL, backends on raw IP addresses, and no error handling. This one:
+answers real questions from an editable knowledge file, quotes only verified prices, degrades
+to a deterministic flow when the model is down, keeps every value in one config file, records
+every failure, and ships with a reproducible test.

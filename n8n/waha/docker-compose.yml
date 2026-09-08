@@ -1,7 +1,7 @@
 # WAHA — WhatsApp HTTP API (unofficial, personal-number pairing) — per CREA manual §"WhatsApp Integration"
 # Runs on :3001 (host :3000 is taken by another dev server on this Mac).
 #
-#   cd ~/.claude/n8n/crea/waha
+#   cd n8n/waha
 #   cp .env.example .env   &&   edit .env   (set WAHA_API_KEY to a long random string)
 #   docker compose up -d
 #   open http://localhost:3001         -> scan the QR with the friend's phone (Linked Devices)

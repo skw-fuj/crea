@@ -2,11 +2,10 @@
   "id": "creamorningbrief",
   "name": "CREA — Morning Briefing (Macro)",
   "meta": {
-    "trisFamily": "scheduled_report_reminder",
-    "trisMode": "macro",
-    "trisVertical": "crea",
-    "trisNote": "06:30 owner TZ. Gathers today's shoots (Acuity), unconfirmed count + unpaid count + new leads (tracker), asks OmniRoute to phrase a tight 'what to focus on' briefing, and WhatsApps it to the owner. Read-only over the sources.",
-    "trisAtoms": [
+    "family": "scheduled_report_reminder",
+    "mode": "macro",
+    "note": "06:30 owner TZ. Gathers today's shoots (Acuity), unconfirmed count + unpaid count + new leads (tracker), asks OmniRoute to phrase a tight 'what to focus on' briefing, and WhatsApps it to the owner. Read-only over the sources.",
+    "steps": [
       "schedule",
       "gather_today",
       "gather_counts",

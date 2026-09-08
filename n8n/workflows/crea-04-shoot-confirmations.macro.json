@@ -2,11 +2,10 @@
   "id": "creashootconfirm",
   "name": "CREA — Shoot Confirmations (Macro)",
   "meta": {
-    "trisFamily": "scheduled_report_reminder",
-    "trisMode": "macro",
-    "trisVertical": "crea",
-    "trisNote": "Daily 17:00 (owner TZ). Pulls tomorrow's Acuity appointments and WhatsApps each client a confirmation, then records each as pending on the tracker 'Pending' tab so CREA — Chase Non-Replies can follow up.",
-    "trisAtoms": [
+    "family": "scheduled_report_reminder",
+    "mode": "macro",
+    "note": "Daily 17:00 (owner TZ). Pulls tomorrow's Acuity appointments and WhatsApps each client a confirmation, then records each as pending in the vault API so CREA — Chase Non-Replies can follow up.",
+    "steps": [
       "schedule",
       "compute_window",
       "fetch_appointments",

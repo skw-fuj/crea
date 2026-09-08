@@ -2,11 +2,10 @@
   "id": "creaaiassistant",
   "name": "CREA — AI Booking Assistant (Macro)",
   "meta": {
-    "trisFamily": "conversation_state_machine",
-    "trisMode": "macro",
-    "trisVertical": "crea",
-    "trisNote": "Conversational front for Cfilms bookings. Answers ONLY from the knowledge base, checks Acuity availability read-only (never books), captures the shoot brief as it learns it, hands to the owner when quote-ready or stuck. Transcript + brief live in the external state store, not model memory. If OmniRoute is unreachable OR returns junk, it hands the live conversation straight to the deterministic qualifier (crea-02) — the two work together, AI leading. 14 nodes: the AI loop plus its real fallback; sub-workflows (wa-send, crea-02) keep the rest decomposed.",
-    "trisAtoms": [
+    "family": "conversation_state_machine",
+    "mode": "macro",
+    "note": "Conversational front for Cfilms bookings. Answers ONLY from the knowledge base, checks Acuity availability read-only (never books), captures the shoot brief as it learns it, hands to the owner when quote-ready or stuck. Transcript + brief live in the the vault API, not model memory. If OmniRoute is unreachable OR returns junk, it hands the live conversation straight to the deterministic qualifier (crea-02) — the two work together, AI leading. 14 nodes: the AI loop plus its real fallback; sub-workflows (wa-send, crea-02) keep the rest decomposed.",
+    "steps": [
       "load_context",
       "retrieve_knowledge",
       "check_availability",

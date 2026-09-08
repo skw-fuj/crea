@@ -2,40 +2,112 @@
   "id": "creaerrorhandler",
   "name": "CREA — Error Handler",
   "meta": {
-    "trisFamily": "cross-cutting",
-    "trisVertical": "crea",
-    "trisNote": "Every CREA workflow names this as its Error Workflow. A node that fails after its own retries lands here; the failure is normalised and POSTed to CREA_ALERT_WEBHOOK_URL (and to the vault API /alert as a fallback record). Without this, failed runs vanish silently.",
-    "trisAtoms": ["catch", "normalise", "alert"]
+    "family": "cross-cutting",
+    "note": "Every CREA workflow names this as its Error Workflow. A node that fails after its own retries lands here; the failure is normalised and POSTed to CREA_ALERT_WEBHOOK_URL (and to the vault API /alert as a fallback record). Without this, failed runs vanish silently.",
+    "steps": [
+      "catch",
+      "normalise",
+      "alert"
+    ]
   },
   "nodes": [
     {
       "parameters": {},
-      "id": "trig", "name": "Error Trigger", "type": "n8n-nodes-base.errorTrigger", "typeVersion": 1, "position": [240, 300]
-    },
-    {
-      "parameters": { "jsCode": "const e = items[0].json;\nreturn [{ json: {\n  workflow: e.workflow?.name || 'unknown',\n  node: e.execution?.lastNodeExecuted || 'unknown',\n  message: e.execution?.error?.message || e.error?.message || 'unknown error',\n  executionId: e.execution?.id || null,\n  failedAt: new Date().toISOString()\n} }];" },
-      "id": "norm", "name": "Normalise Failure", "type": "n8n-nodes-base.code", "typeVersion": 2, "position": [460, 300]
-    },
-    {
-      "parameters": {
-        "method": "POST", "url": "{{CREA_ALERT_WEBHOOK_URL}}",
-        "sendBody": true, "specifyBody": "json", "jsonBody": "={{ JSON.stringify($json) }}",
-        "options": { "timeout": 10000 }
-      },
-      "id": "alert", "name": "Alert", "type": "n8n-nodes-base.httpRequest", "typeVersion": 4.2, "position": [680, 220], "onError": "continueRegularOutput"
+      "id": "trig",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        240,
+        300
+      ]
     },
     {
       "parameters": {
-        "method": "POST", "url": "{{CREA_VAULT_API_URL}}/alert",
-        "sendBody": true, "specifyBody": "json", "jsonBody": "={{ JSON.stringify($json) }}",
-        "options": { "timeout": 10000 }
+        "jsCode": "const e = items[0].json;\nreturn [{ json: {\n  workflow: e.workflow?.name || 'unknown',\n  node: e.execution?.lastNodeExecuted || 'unknown',\n  message: e.execution?.error?.message || e.error?.message || 'unknown error',\n  executionId: e.execution?.id || null,\n  failedAt: new Date().toISOString()\n} }];"
       },
-      "id": "vault", "name": "Record to Vault", "type": "n8n-nodes-base.httpRequest", "typeVersion": 4.2, "position": [680, 380], "onError": "continueRegularOutput"
+      "id": "norm",
+      "name": "Normalise Failure",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{CREA_ALERT_WEBHOOK_URL}}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "alert",
+      "name": "Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        680,
+        220
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{CREA_VAULT_API_URL}}/alert",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "vault",
+      "name": "Record to Vault",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        680,
+        380
+      ],
+      "onError": "continueRegularOutput"
     }
   ],
   "connections": {
-    "Error Trigger": { "main": [[{ "node": "Normalise Failure", "type": "main", "index": 0 }]] },
-    "Normalise Failure": { "main": [[{ "node": "Alert", "type": "main", "index": 0 }, { "node": "Record to Vault", "type": "main", "index": 0 }]] }
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Normalise Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalise Failure": {
+      "main": [
+        [
+          {
+            "node": "Alert",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Record to Vault",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
   },
-  "settings": { "executionOrder": "v1" }
+  "settings": {
+    "executionOrder": "v1"
+  }
 }

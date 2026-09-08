@@ -62,14 +62,14 @@ The vault API and OmniRoute are the only running services besides n8n and WAHA. 
 | `facet-template/` | the same shape generalised for any other assistant — `NEW-FACET.md` |
 | `config.example.env` | every account/key, each marked required/optional |
 | `go-live.sh` · `fill-config.sh` | deploy + config substitution |
-| `HANDOVER.md` · `SETUP.md` · `TEST-REPORT.md` | client handover, full setup, test evidence |
+| `HANDOVER.md` · `SETUP.md` · `DATA-AND-BACKUP.md` · `TEST-REPORT.md` | client handover, full setup, test evidence |
 | `test/` | `mock-services.js` + `demo.sh` — reproduce the verification run offline |
 
 ---
 
 ## Design rules
 
-- Every workflow is a MACRO with named atomic steps (`meta.trisAtoms`); sub-workflows keep it decomposed.
+- Every workflow is a MACRO with named steps (`meta.steps`); sub-workflows keep it decomposed.
 - Three-layer error handling: node `retryOnFail` + `onError` · `crea-00` as every workflow's `errorWorkflow` · a layer-3 alert.
 - **Placeholders only** — no secrets in the JSON. `fill-config.sh` substitutes `config.env`.
 - Conversation state + transcript live in the vault API, **never model memory**.

@@ -1,11 +1,10 @@
 {
   "name": "CREA — WhatsApp Booking Agent (Macro)",
   "meta": {
-    "trisFamily": "conversation_state_machine",
-    "trisMode": "macro",
-    "trisVertical": "crea",
-    "trisNote": "Deterministic shoot-booking qualification for Cfilms. Stage lives in the external state store, never model memory. On completion the brief is pushed to the vault as a lead for the owner to quote. Brand via {{CREA_BUSINESS_NAME}}. Replies go out through CREA — WA Send.",
-    "trisAtoms": [
+    "family": "conversation_state_machine",
+    "mode": "macro",
+    "note": "Deterministic shoot-booking qualification for Cfilms. Stage lives in the the vault API, never model memory. On completion the brief is pushed to the vault as a lead for the owner to quote. Brand via {{CREA_BUSINESS_NAME}}. Replies go out through CREA — WA Send.",
+    "steps": [
       "load_stage",
       "route_by_stage",
       "capture_answer",

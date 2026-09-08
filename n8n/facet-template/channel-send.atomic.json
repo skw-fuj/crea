@@ -2,78 +2,304 @@
   "id": "facetchannelsend",
   "name": "FACET — Channel Send (atomic)",
   "meta": {
-    "trisFamily": "cross-cutting",
-    "trisMode": "atomic",
-    "trisNote": "Generic outbound. Input { to, text }. Switches on {{FACET_CHANNEL}} (waha | meta | telegram | webhook) so a facet picks its messaging channel in config only. Copy of CREA — WA Send, generalised.",
-    "trisAtoms": ["route_channel", "send", "return_result"]
+    "family": "cross-cutting",
+    "mode": "atomic",
+    "note": "Generic outbound. Input { to, text }. Switches on {{FACET_CHANNEL}} (waha | meta | telegram | webhook) so a facet picks its messaging channel in config only. The generalised send node.",
+    "steps": [
+      "route_channel",
+      "send",
+      "return_result"
+    ]
   },
   "nodes": [
     {
-      "parameters": { "inputSource": "workflowInputs", "workflowInputs": { "values": [ { "name": "to", "type": "string" }, { "name": "text", "type": "string" } ] } },
-      "id": "trigger", "name": "When called", "type": "n8n-nodes-base.executeWorkflowTrigger", "typeVersion": 1.1, "position": [200, 300]
-    },
-    {
-      "parameters": { "jsCode": "const to = String($json.to||'').trim();\nconst text = String($json.text||'').trim();\nif (!to || !text) throw new Error('Channel Send: need to + text');\nreturn [{ json: { to, text, channel: '{{FACET_CHANNEL}}' } }];" },
-      "id": "prep", "name": "Prep", "type": "n8n-nodes-base.code", "typeVersion": 2, "position": [400, 300]
-    },
-    {
       "parameters": {
-        "rules": { "values": [
-          { "conditions": { "options": { "caseSensitive": false }, "conditions": [ { "leftValue": "={{ $json.channel }}", "rightValue": "waha", "operator": { "type": "string", "operation": "equals" } } ] }, "outputKey": "waha" },
-          { "conditions": { "options": { "caseSensitive": false }, "conditions": [ { "leftValue": "={{ $json.channel }}", "rightValue": "meta", "operator": { "type": "string", "operation": "equals" } } ] }, "outputKey": "meta" },
-          { "conditions": { "options": { "caseSensitive": false }, "conditions": [ { "leftValue": "={{ $json.channel }}", "rightValue": "telegram", "operator": { "type": "string", "operation": "equals" } } ] }, "outputKey": "telegram" }
-        ] },
-        "options": { "fallbackOutput": "extra" }
+        "inputSource": "workflowInputs",
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "to",
+              "type": "string"
+            },
+            {
+              "name": "text",
+              "type": "string"
+            }
+          ]
+        }
       },
-      "id": "route", "name": "Route Channel", "type": "n8n-nodes-base.switch", "typeVersion": 3, "position": [600, 300]
+      "id": "trigger",
+      "name": "When called",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        200,
+        300
+      ]
     },
     {
       "parameters": {
-        "method": "POST", "url": "{{FACET_WAHA_URL}}/api/sendText",
-        "sendHeaders": true, "headerParameters": { "parameters": [ { "name": "X-Api-Key", "value": "{{FACET_WAHA_API_KEY}}" }, { "name": "Content-Type", "value": "application/json" } ] },
-        "sendBody": true, "specifyBody": "json",
+        "jsCode": "const to = String($json.to||'').trim();\nconst text = String($json.text||'').trim();\nif (!to || !text) throw new Error('Channel Send: need to + text');\nreturn [{ json: { to, text, channel: '{{FACET_CHANNEL}}' } }];"
+      },
+      "id": "prep",
+      "name": "Prep",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        400,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.channel }}",
+                    "rightValue": "waha",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "outputKey": "waha"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.channel }}",
+                    "rightValue": "meta",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "outputKey": "meta"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.channel }}",
+                    "rightValue": "telegram",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "outputKey": "telegram"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "id": "route",
+      "name": "Route Channel",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        600,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{FACET_WAHA_URL}}/api/sendText",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Api-Key",
+              "value": "{{FACET_WAHA_API_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ session: '{{FACET_WAHA_SESSION}}', chatId: ($json.to.includes('@') ? $json.to : $json.to.replace(/[^0-9]/g,'') + '@c.us'), text: $json.text }) }}",
-        "options": { "timeout": 15000 }
+        "options": {
+          "timeout": 15000
+        }
       },
-      "id": "waha", "name": "WAHA", "type": "n8n-nodes-base.httpRequest", "typeVersion": 4.2, "position": [820, 180], "onError": "continueErrorOutput", "retryOnFail": true, "maxTries": 3, "waitBetweenTries": 1500
+      "id": "waha",
+      "name": "WAHA",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        820,
+        180
+      ],
+      "onError": "continueErrorOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1500
     },
     {
       "parameters": {
-        "method": "POST", "url": "={{ 'https://graph.facebook.com/v20.0/' + '{{FACET_META_PHONE_ID}}' + '/messages' }}",
-        "sendHeaders": true, "headerParameters": { "parameters": [ { "name": "Authorization", "value": "Bearer {{FACET_META_TOKEN}}" }, { "name": "Content-Type", "value": "application/json" } ] },
-        "sendBody": true, "specifyBody": "json",
+        "method": "POST",
+        "url": "={{ 'https://graph.facebook.com/v20.0/' + '{{FACET_META_PHONE_ID}}' + '/messages' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{FACET_META_TOKEN}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ messaging_product: 'whatsapp', to: $json.to.replace(/[^0-9]/g,''), type: 'text', text: { body: $json.text } }) }}",
-        "options": { "timeout": 15000 }
+        "options": {
+          "timeout": 15000
+        }
       },
-      "id": "meta", "name": "Meta Cloud API", "type": "n8n-nodes-base.httpRequest", "typeVersion": 4.2, "position": [820, 300], "onError": "continueErrorOutput", "retryOnFail": true, "maxTries": 3, "waitBetweenTries": 1500
+      "id": "meta",
+      "name": "Meta Cloud API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        820,
+        300
+      ],
+      "onError": "continueErrorOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1500
     },
     {
       "parameters": {
-        "method": "POST", "url": "={{ 'https://api.telegram.org/bot' + '{{FACET_TELEGRAM_TOKEN}}' + '/sendMessage' }}",
-        "sendBody": true, "specifyBody": "json",
+        "method": "POST",
+        "url": "={{ 'https://api.telegram.org/bot' + '{{FACET_TELEGRAM_TOKEN}}' + '/sendMessage' }}",
+        "sendBody": true,
+        "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ chat_id: $json.to, text: $json.text }) }}",
-        "options": { "timeout": 15000 }
+        "options": {
+          "timeout": 15000
+        }
       },
-      "id": "tg", "name": "Telegram", "type": "n8n-nodes-base.httpRequest", "typeVersion": 4.2, "position": [820, 420], "onError": "continueErrorOutput", "retryOnFail": true, "maxTries": 3
+      "id": "tg",
+      "name": "Telegram",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        820,
+        420
+      ],
+      "onError": "continueErrorOutput",
+      "retryOnFail": true,
+      "maxTries": 3
     },
     {
       "parameters": {
-        "method": "POST", "url": "{{FACET_WEBHOOK_SINK_URL}}",
-        "sendBody": true, "specifyBody": "json", "jsonBody": "={{ JSON.stringify({ to: $json.to, text: $json.text }) }}",
-        "options": { "timeout": 15000 }
+        "method": "POST",
+        "url": "{{FACET_WEBHOOK_SINK_URL}}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ to: $json.to, text: $json.text }) }}",
+        "options": {
+          "timeout": 15000
+        }
       },
-      "id": "hook", "name": "Webhook Sink", "type": "n8n-nodes-base.httpRequest", "typeVersion": 4.2, "position": [820, 540], "onError": "continueErrorOutput"
+      "id": "hook",
+      "name": "Webhook Sink",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        820,
+        540
+      ],
+      "onError": "continueErrorOutput"
     }
   ],
   "connections": {
-    "When called": { "main": [[{ "node": "Prep", "type": "main", "index": 0 }]] },
-    "Prep": { "main": [[{ "node": "Route Channel", "type": "main", "index": 0 }]] },
-    "Route Channel": { "main": [
-      [{ "node": "WAHA", "type": "main", "index": 0 }],
-      [{ "node": "Meta Cloud API", "type": "main", "index": 0 }],
-      [{ "node": "Telegram", "type": "main", "index": 0 }],
-      [{ "node": "Webhook Sink", "type": "main", "index": 0 }]
-    ] }
+    "When called": {
+      "main": [
+        [
+          {
+            "node": "Prep",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prep": {
+      "main": [
+        [
+          {
+            "node": "Route Channel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Channel": {
+      "main": [
+        [
+          {
+            "node": "WAHA",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Meta Cloud API",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Webhook Sink",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
   },
-  "settings": { "executionOrder": "v1", "errorWorkflow": "{{GLOBAL_ERROR_HANDLER_ID}}" }
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "creaerrorhandler"
+  }
 }

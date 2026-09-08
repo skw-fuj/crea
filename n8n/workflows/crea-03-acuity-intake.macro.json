@@ -2,11 +2,10 @@
   "id": "creaacuityintake",
   "name": "CREA — Acuity Intake (Macro)",
   "meta": {
-    "trisFamily": "reliable_ingress",
-    "trisMode": "macro",
-    "trisVertical": "crea",
-    "trisNote": "Acuity 'appointment.scheduled' webhook -> fetch full appointment -> job record in the vault + Google Calendar event + a row on the job tracker sheet + a WhatsApp heads-up to the owner. Idempotent on Acuity appointment id.",
-    "trisAtoms": [
+    "family": "reliable_ingress",
+    "mode": "macro",
+    "note": "Acuity 'appointment.scheduled' webhook -> fetch full appointment -> job record in the vault (Google Calendar event optional) + a WhatsApp heads-up to the owner. Idempotent on Acuity appointment id.",
+    "steps": [
       "receive_webhook",
       "fetch_appointment",
       "build_job",

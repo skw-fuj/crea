@@ -5,3 +5,11 @@ vault/
 crea.config.json
 __pycache__/
 *.pyc
+
+# n8n Hands Layer — local/generated
+.DS_Store
+n8n/config.env
+n8n/workflows/_filled/
+n8n/vault-api/data/
+n8n/test/test.live.env
+*.log

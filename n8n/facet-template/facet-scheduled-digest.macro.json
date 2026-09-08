@@ -1,0 +1,59 @@
+{
+  "id": "facetscheduleddigest",
+  "name": "FACET — Scheduled Digest (macro)",
+  "meta": {
+    "trisFamily": "scheduled_report_reminder",
+    "trisMode": "macro",
+    "trisNote": "Generic 'send me a summary on a schedule' for any facet. Cron -> pull one or more sources -> optional OmniRoute phrasing -> deliver via FACET — Channel Send. Set the cron, the source URL(s), and the recipient in config. This is the shape CREA's crea-04/07/08/10 were tailored from.",
+    "trisAtoms": ["schedule", "read_sources", "aggregate", "compose", "deliver"]
+  },
+  "nodes": [
+    {
+      "parameters": { "rule": { "interval": [ { "field": "cronExpression", "expression": "{{FACET_DIGEST_CRON}}" } ] } },
+      "id": "sched", "name": "Schedule", "type": "n8n-nodes-base.scheduleTrigger", "typeVersion": 1.2, "position": [200, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET", "url": "{{FACET_DIGEST_SOURCE_URL}}",
+        "options": { "timeout": 20000 }
+      },
+      "id": "read", "name": "Read Source", "type": "n8n-nodes-base.httpRequest", "typeVersion": 4.2, "position": [420, 300],
+      "onError": "continueErrorOutput", "retryOnFail": true, "maxTries": 3, "waitBetweenTries": 2000
+    },
+    {
+      "parameters": { "jsCode": "// FACET: shape the raw source into a compact object for phrasing.\nconst rows = Array.isArray(items[0].json) ? items[0].json : items.map(i => i.json);\nreturn [{ json: { count: rows.length, items: rows.slice(0, 25), at: new Date().toISOString() } }];" },
+      "id": "agg", "name": "Aggregate", "type": "n8n-nodes-base.code", "typeVersion": 2, "position": [640, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST", "url": "{{FACET_OMNIROUTE_URL}}",
+        "authentication": "genericCredentialType", "genericAuthType": "httpHeaderAuth",
+        "sendBody": true, "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: '{{FACET_LLM_MODEL}}', messages: [ { role: 'system', content: '{{FACET_DIGEST_PROMPT}}' }, { role: 'user', content: JSON.stringify($json) } ] }) }}",
+        "options": { "timeout": 30000 }
+      },
+      "id": "llm", "name": "Compose (OmniRoute)", "type": "n8n-nodes-base.httpRequest", "typeVersion": 4.2, "position": [860, 300],
+      "onError": "continueRegularOutput", "retryOnFail": true, "maxTries": 2
+    },
+    {
+      "parameters": { "jsCode": "const r = items[0].json || {};\nlet text = r.choices?.[0]?.message?.content || r.content || '';\nif (!text) text = `Digest: ${$node['Aggregate'].json.count} item(s).`;\nreturn [{ json: { to: '{{FACET_DIGEST_RECIPIENT}}', text: String(text).trim() } }];" },
+      "id": "shape", "name": "Shape", "type": "n8n-nodes-base.code", "typeVersion": 2, "position": [1080, 300]
+    },
+    {
+      "parameters": {
+        "workflowId": { "__rl": true, "value": "facetchannelsend", "mode": "id", "cachedResultName": "FACET — Channel Send (atomic)" },
+        "workflowInputs": { "mappingMode": "defineBelow", "value": { "to": "={{ $json.to }}", "text": "={{ $json.text }}" }, "matchingColumns": [], "schema": [], "attemptToConvertTypes": false, "convertFieldsToString": true },
+        "options": {}
+      },
+      "id": "send", "name": "Deliver", "type": "n8n-nodes-base.executeWorkflow", "typeVersion": 1.2, "position": [1300, 300], "onError": "continueErrorOutput"
+    }
+  ],
+  "connections": {
+    "Schedule": { "main": [[{ "node": "Read Source", "type": "main", "index": 0 }]] },
+    "Read Source": { "main": [[{ "node": "Aggregate", "type": "main", "index": 0 }]] },
+    "Aggregate": { "main": [[{ "node": "Compose (OmniRoute)", "type": "main", "index": 0 }]] },
+    "Compose (OmniRoute)": { "main": [[{ "node": "Shape", "type": "main", "index": 0 }]] },
+    "Shape": { "main": [[{ "node": "Deliver", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1", "errorWorkflow": "{{GLOBAL_ERROR_HANDLER_ID}}" }
+}

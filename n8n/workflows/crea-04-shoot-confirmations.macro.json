@@ -1,0 +1,217 @@
+{
+  "id": "creashootconfirm",
+  "name": "CREA — Shoot Confirmations (Macro)",
+  "meta": {
+    "trisFamily": "scheduled_report_reminder",
+    "trisMode": "macro",
+    "trisVertical": "crea",
+    "trisNote": "Daily 17:00 (owner TZ). Pulls tomorrow's Acuity appointments and WhatsApps each client a confirmation, then records each as pending on the tracker 'Pending' tab so CREA — Chase Non-Replies can follow up.",
+    "trisAtoms": [
+      "schedule",
+      "compute_window",
+      "fetch_appointments",
+      "fan_out",
+      "send_confirmation",
+      "record_pending"
+    ]
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 17 * * *"
+            }
+          ]
+        }
+      },
+      "id": "sched",
+      "name": "Daily 17:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        200,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const tz = '{{CREA_TIMEZONE}}';\nconst now = new Date();\nconst d = new Date(now.getTime() + 24*3600*1000);\nconst ymd = d.toISOString().slice(0,10);\nreturn [{ json: { minDate: ymd, maxDate: ymd } }];"
+      },
+      "id": "win",
+      "name": "Compute Tomorrow",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        400,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "{{CREA_ACUITY_BASE}}/appointments",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "minDate",
+              "value": "={{ $json.minDate }}"
+            },
+            {
+              "name": "maxDate",
+              "value": "={{ $json.maxDate }}"
+            },
+            {
+              "name": "max",
+              "value": "100"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "id": "get",
+      "name": "Get Appointments",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        600,
+        300
+      ],
+      "onError": "continueErrorOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "jsCode": "const B='{{CREA_BUSINESS_NAME}}';\nconst appts = $('Get Appointments').all().map(i => i.json).filter(a => a && a.phone);\nreturn appts.map(a => {\n  const when = (a.datetime||'').replace('T',' ').slice(0,16);\n  const who = [a.firstName,a.lastName].filter(Boolean).join(' ');\n  return { json: { phone: String(a.phone).replace(/[^0-9]/g,''), jobId: 'ACU-'+a.id, client: who,\n    text: `Hi ${who||'there'}, ${B} here \\u2014 confirming your shoot tomorrow at ${when}. Reply YES to confirm or let us know if you need to change it.`,\n    sentAt: new Date().toISOString() } };\n});"
+      },
+      "id": "build",
+      "name": "Build Confirmations",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        800,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "creawasend",
+          "mode": "id",
+          "cachedResultName": "CREA — WA Send (WAHA atomic)"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "to": "={{ $json.phone }}",
+            "text": "={{ $json.text }}"
+          },
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "send",
+      "name": "Send Confirmation",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1000,
+        260
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{CREA_VAULT_API_URL}}/pending",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ phone: $json.phone, jobId: $json.jobId, client: $json.client, sentAt: $json.sentAt, chases: 0, confirmed: false }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "pend",
+      "name": "Record Pending",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1000,
+        400
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 2
+    }
+  ],
+  "connections": {
+    "Daily 17:00": {
+      "main": [
+        [
+          {
+            "node": "Compute Tomorrow",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compute Tomorrow": {
+      "main": [
+        [
+          {
+            "node": "Get Appointments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Appointments": {
+      "main": [
+        [
+          {
+            "node": "Build Confirmations",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Confirmations": {
+      "main": [
+        [
+          {
+            "node": "Send Confirmation",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Record Pending",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "creaerrorhandler"
+  }
+}

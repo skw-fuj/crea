@@ -18,6 +18,13 @@ you three optional questions near the end.
 
 Re-running it is safe: anything already installed is left alone.
 
+## Automations (n8n)
+
+The WhatsApp booking assistant and the shoot-ops automations live in [`n8n/`](n8n/).
+They're optional — CREA's voice + vault work without them. To turn them on, see
+[`n8n/HANDOVER.md`](n8n/HANDOVER.md) (a short gather list, then one prompt you paste
+into Claude Code) or [`n8n/README.md`](n8n/README.md).
+
 ## Manual
 
 Full setup and operating manual: [docs/MANUAL.md](docs/MANUAL.md)

@@ -1,0 +1,243 @@
+{
+  "id": "creaacuityintake",
+  "name": "CREA — Acuity Intake (Macro)",
+  "meta": {
+    "trisFamily": "reliable_ingress",
+    "trisMode": "macro",
+    "trisVertical": "crea",
+    "trisNote": "Acuity 'appointment.scheduled' webhook -> fetch full appointment -> job record in the vault + Google Calendar event + a row on the job tracker sheet + a WhatsApp heads-up to the owner. Idempotent on Acuity appointment id.",
+    "trisAtoms": [
+      "receive_webhook",
+      "fetch_appointment",
+      "build_job",
+      "persist_vault",
+      "calendar_event",
+      "tracker_row",
+      "notify_owner"
+    ]
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "crea-acuity",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "wh",
+      "name": "Acuity Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        200,
+        300
+      ],
+      "webhookId": "crea-acuity"
+    },
+    {
+      "parameters": {
+        "jsCode": "const b = items[0].json.body || items[0].json;\nconst id = b.id || b.appointmentID || b['id'];\nconst action = b.action || 'scheduled';\nif (!id) throw new Error('Acuity webhook missing appointment id');\nif (action && !String(action).includes('scheduled')) return [];\nreturn [{ json: { apptId: String(id) } }];"
+      },
+      "id": "parse",
+      "name": "Parse Webhook",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        400,
+        300
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ '{{CREA_ACUITY_BASE}}/appointments/' + $json.apptId }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "fetch",
+      "name": "Get Appointment",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        600,
+        300
+      ],
+      "onError": "continueErrorOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "jsCode": "const a = items[0].json;\nconst forms = (a.forms || []).flatMap(f => (f.values || []));\nconst pick = (needle) => { const m = forms.find(v => (v.name||'').toLowerCase().includes(needle)); return m ? m.value : ''; };\nconst job = {\n  jobId: 'ACU-' + a.id,\n  client: [a.firstName, a.lastName].filter(Boolean).join(' '),\n  phone: (a.phone || '').replace(/[^0-9]/g,''),\n  email: a.email || '',\n  type: a.type || a.appointmentTypeID || '',\n  address: pick('address') || pick('property') || '',\n  datetime: a.datetime || '',\n  endTime: a.endTime || '',\n  duration: a.duration || '',\n  price: a.price || '',\n  notes: a.notes || pick('note') || '',\n  calendar: a.calendar || '',\n  createdAt: new Date().toISOString()\n};\nreturn [{ json: job }];"
+      },
+      "id": "build",
+      "name": "Build Job",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        800,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{CREA_VAULT_API_URL}}/job",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "vault",
+      "name": "Vault Job Record",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1000,
+        200
+      ],
+      "onError": "continueErrorOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "resource": "event",
+        "operation": "create",
+        "calendar": {
+          "__rl": true,
+          "value": "{{CREA_GCAL_ID}}",
+          "mode": "id"
+        },
+        "start": "={{ $json.datetime }}",
+        "end": "={{ $json.endTime || $json.datetime }}",
+        "additionalFields": {
+          "summary": "={{ 'Shoot: ' + $json.client + ' — ' + ($json.address || $json.type) }}",
+          "description": "={{ 'Job ' + $json.jobId + '\\nType: ' + $json.type + '\\nPhone: ' + $json.phone + '\\nNotes: ' + $json.notes }}",
+          "location": "={{ $json.address }}"
+        }
+      },
+      "id": "cal",
+      "name": "Calendar Event",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [
+        1200,
+        200
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "creawasend",
+          "mode": "id",
+          "cachedResultName": "CREA — WA Send (WAHA atomic)"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "to": "{{CREA_OWNER_WA}}",
+            "text": "={{ 'New booking (Acuity): ' + $node['Build Job'].json.client + ' — ' + $node['Build Job'].json.type + ' @ ' + $node['Build Job'].json.datetime + '\\n' + ($node['Build Job'].json.address || '') }}"
+          },
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "id": "notify",
+      "name": "Notify Owner",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1420,
+        300
+      ],
+      "onError": "continueErrorOutput"
+    }
+  ],
+  "connections": {
+    "Acuity Webhook": {
+      "main": [
+        [
+          {
+            "node": "Parse Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Webhook": {
+      "main": [
+        [
+          {
+            "node": "Get Appointment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Appointment": {
+      "main": [
+        [
+          {
+            "node": "Build Job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Job": {
+      "main": [
+        [
+          {
+            "node": "Vault Job Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Vault Job Record": {
+      "main": [
+        [
+          {
+            "node": "Notify Owner",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "creaerrorhandler"
+  }
+}

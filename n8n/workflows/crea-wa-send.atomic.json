@@ -1,0 +1,144 @@
+{
+  "id": "creawasend",
+  "name": "CREA — WA Send (WAHA atomic)",
+  "meta": {
+    "trisFamily": "cross-cutting",
+    "trisMode": "atomic",
+    "trisVertical": "crea",
+    "trisNote": "The ONLY place CREA talks to WhatsApp. Swap gateway here (WAHA -> Evolution -> Meta Cloud API) without touching any other workflow. Input item: { to, text }. 'to' may be bare digits or a full <n>@c.us chatId.",
+    "trisAtoms": [
+      "normalize_recipient",
+      "send_text",
+      "return_result"
+    ]
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "workflowInputs",
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "to",
+              "type": "string"
+            },
+            {
+              "name": "text",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "id": "trigger",
+      "name": "When called",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        220,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const to = String($json.to || '').trim();\nconst text = String($json.text || '').trim();\nif (!to) throw new Error('WA Send: missing recipient');\nif (!text) throw new Error('WA Send: empty message');\nconst chatId = to.includes('@') ? to : (to.replace(/[^0-9]/g, '') + '@c.us');\nreturn [{ json: { chatId, text } }];"
+      },
+      "id": "norm",
+      "name": "Normalize Recipient",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{CREA_WAHA_URL}}/api/sendText",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Api-Key",
+              "value": "{{CREA_WAHA_API_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ session: '{{CREA_WAHA_SESSION}}', chatId: $json.chatId, text: $json.text }) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "send",
+      "name": "WAHA sendText",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        300
+      ],
+      "onError": "continueErrorOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1500
+    },
+    {
+      "parameters": {
+        "jsCode": "const r = items[0].json || {};\nreturn [{ json: { ok: true, to: $node['Normalize Recipient'].json.chatId, wahaId: (r.id || (r._data && r._data.id && r._data.id._serialized) || null), sentAt: new Date().toISOString() } }];"
+      },
+      "id": "result",
+      "name": "Return Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "When called": {
+      "main": [
+        [
+          {
+            "node": "Normalize Recipient",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Recipient": {
+      "main": [
+        [
+          {
+            "node": "WAHA sendText",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WAHA sendText": {
+      "main": [
+        [
+          {
+            "node": "Return Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "creaerrorhandler"
+  }
+}

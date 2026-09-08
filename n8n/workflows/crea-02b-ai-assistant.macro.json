@@ -1,0 +1,516 @@
+{
+  "id": "creaaiassistant",
+  "name": "CREA — AI Booking Assistant (Macro)",
+  "meta": {
+    "trisFamily": "conversation_state_machine",
+    "trisMode": "macro",
+    "trisVertical": "crea",
+    "trisNote": "Conversational front for Cfilms bookings. Answers ONLY from the knowledge base, checks Acuity availability read-only (never books), captures the shoot brief as it learns it, hands to the owner when quote-ready or stuck. Transcript + brief live in the external state store, not model memory. If OmniRoute is unreachable OR returns junk, it hands the live conversation straight to the deterministic qualifier (crea-02) — the two work together, AI leading. 14 nodes: the AI loop plus its real fallback; sub-workflows (wa-send, crea-02) keep the rest decomposed.",
+    "trisAtoms": [
+      "load_context",
+      "retrieve_knowledge",
+      "check_availability",
+      "build_prompt",
+      "generate",
+      "parse",
+      "route_or_fallback",
+      "reply",
+      "persist",
+      "handoff"
+    ]
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "workflowInputs",
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "from",
+              "type": "string"
+            },
+            {
+              "name": "text",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "id": "trigger",
+      "name": "When called",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        160,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ '{{STATE_STORE_URL}}?key=' + $json.from }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "ctx",
+      "name": "Load Context",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        340,
+        320
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ '{{CREA_VAULT_API_URL}}/knowledge?q=' + encodeURIComponent($node['When called'].json.text) }}",
+        "options": {
+          "timeout": 12000
+        }
+      },
+      "id": "kb",
+      "name": "Knowledge Lookup",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        520,
+        320
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 2
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "{{CREA_VAULT_API_URL}}/availability",
+        "options": {
+          "timeout": 12000
+        }
+      },
+      "id": "avail",
+      "name": "Availability",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        700,
+        320
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 2
+    },
+    {
+      "parameters": {
+        "jsCode": "const B = '{{CREA_BUSINESS_NAME}}';\nconst OWNER = '{{CREA_OWNER_NAME}}';\nconst inc = $node['When called'].json;\nconst stored = $node['Load Context'].json || {};\nconst transcript = Array.isArray(stored.transcript) ? stored.transcript.slice(-6) : [];\nconst brief = (stored.brief && typeof stored.brief === 'object') ? stored.brief : {};\n\nlet kb = '';\ntry { const k = $node['Knowledge Lookup'].json; kb = Array.isArray(k.chunks) ? k.chunks.join('\\n\\n') : (k.text || JSON.stringify(k)); } catch (e) {}\nif (!kb) kb = '(knowledge base unavailable)';\n\nlet avail = '';\ntry { const a = $node['Availability'].json; avail = typeof a === 'string' ? a : JSON.stringify(a); } catch (e) {}\nif (!avail) avail = '(availability unavailable)';\n\nconst system = [\n  `You are the booking assistant for ${B}, a real estate photo/video business. You reply over WhatsApp.`,\n  `RULES:`,\n  `1. Answer ONLY from KNOWLEDGE below. If the answer isn't there, say ${OWNER} will follow up and set needs_human true. Never invent a price, package, or policy.`,\n  `2. Never confirm a booking or a specific time slot. If a date looks open in AVAILABILITY say \"that looks open, ${OWNER} will confirm\". If it looks busy, say so and offer to check alternatives.`,\n  `3. Quote prices ONLY if they appear verbatim in KNOWLEDGE. Otherwise: \"I'll get you an exact quote\".`,\n  `4. Collect the shoot brief as you go: service, property (type+size), address, preferred_date, access, notes. Don't interrogate — ask at most one thing per reply.`,\n  `5. Keep replies short, warm, plain text. No markdown, no bullet dumps.`,\n  `6. Set booking_ready true once you have service + address + preferred_date (enough for ${OWNER} to quote).`,\n  ``,\n  `Respond with STRICT JSON only, no code fence:`,\n  `{\"reply\": string, \"brief\": {\"service\"?, \"property\"?, \"address\"?, \"preferred_date\"?, \"access\"?, \"notes\"?}, \"booking_ready\": boolean, \"needs_human\": boolean}`,\n  `Merge brief with what's already known; include only fields you're confident about.`,\n  ``,\n  `KNOWLEDGE:\\n${kb}`,\n  ``,\n  `AVAILABILITY (next 2 weeks, busy blocks):\\n${avail}`,\n  ``,\n  `BRIEF SO FAR: ${JSON.stringify(brief)}`\n].join('\\n');\n\nconst messages = [{ role: 'system', content: system }];\nfor (const t of transcript) messages.push({ role: t.role === 'assistant' ? 'assistant' : 'user', content: String(t.content || '') });\nmessages.push({ role: 'user', content: inc.text });\n\nreturn [{ json: { messages, from: inc.from, text: inc.text, briefSoFar: brief, transcript } }];"
+      },
+      "id": "prompt",
+      "name": "Build Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{CREA_OMNIROUTE_URL}}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: '{{CREA_LLM_MODEL}}', temperature: 0.3, response_format: { type: 'json_object' }, messages: $json.messages }) }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "ai",
+      "name": "AI (OmniRoute)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1060,
+        320
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "jsCode": "const from = $node['Build Prompt'].json.from;\nconst text = $node['Build Prompt'].json.text;\nconst briefSoFar = $node['Build Prompt'].json.briefSoFar || {};\nlet raw = '';\ntry { const r = items[0].json; raw = r.choices?.[0]?.message?.content || r.content || r.message?.content || ''; } catch (e) {}\n\nlet parsed = null;\nif (raw) {\n  let s = String(raw).trim().replace(/^```(json)?/i, '').replace(/```$/,'').trim();\n  const a = s.indexOf('{'), b = s.lastIndexOf('}');\n  if (a >= 0 && b > a) { try { parsed = JSON.parse(s.slice(a, b + 1)); } catch (e) {} }\n}\n\nif (!parsed || typeof parsed.reply !== 'string') {\n  // AI unreachable / unparseable -> hand the live conversation to the deterministic qualifier\n  return [{ json: { from, text, degraded: true } }];\n}\n\nconst brief = Object.assign({}, briefSoFar, (parsed.brief && typeof parsed.brief === 'object') ? parsed.brief : {});\nreturn [{ json: {\n  from, text, degraded: false,\n  reply: parsed.reply.trim(),\n  brief,\n  booking_ready: parsed.booking_ready === true,\n  needs_human: parsed.needs_human === true\n} }];"
+      },
+      "id": "parse",
+      "name": "Parse AI",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1240,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "loose"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.degraded }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "route",
+      "name": "AI ok, or fall back?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1420,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "creabookingagent",
+          "mode": "id",
+          "cachedResultName": "CREA — WhatsApp Booking Agent (Macro)"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "from": "={{ $json.from }}",
+            "text": "={{ $json.text }}"
+          },
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "id": "fallback",
+      "name": "-> Deterministic Qualifier",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1620,
+        200
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "creawasend",
+          "mode": "id",
+          "cachedResultName": "CREA — WA Send (WAHA atomic)"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "to": "={{ $json.from }}",
+            "text": "={{ $json.reply }}"
+          },
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "send",
+      "name": "Send Reply",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1620,
+        420
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{STATE_STORE_URL}}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ key: $node['Parse AI'].json.from, mode: 'ai', brief: $node['Parse AI'].json.brief, booking_ready: $node['Parse AI'].json.booking_ready, transcript: ($node['Build Prompt'].json.transcript || []).concat([{ role: 'user', content: $node['When called'].json.text }, { role: 'assistant', content: $node['Parse AI'].json.reply }]).slice(-12), lastInboundAt: new Date().toISOString() }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "persist",
+      "name": "Persist Context",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1820,
+        420
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "loose"
+          },
+          "combinator": "or",
+          "conditions": [
+            {
+              "leftValue": "={{ $node['Parse AI'].json.booking_ready }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "leftValue": "={{ $node['Parse AI'].json.needs_human }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "handoff",
+      "name": "Hand to Owner?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2020,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{CREA_VAULT_API_URL}}/lead",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ source: 'whatsapp-ai', from: $node['Parse AI'].json.from, brief: $node['Parse AI'].json.brief, status: $node['Parse AI'].json.booking_ready ? 'to-quote' : 'needs-human', capturedAt: new Date().toISOString() }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "lead",
+      "name": "Push Brief to Vault",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2220,
+        340
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "creawasend",
+          "mode": "id",
+          "cachedResultName": "CREA — WA Send (WAHA atomic)"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "to": "={{ '{{CREA_OWNER_WA}}' }}",
+            "text": "={{ ($node['Parse AI'].json.booking_ready ? 'Quote-ready enquiry from ' : 'Needs a human \\u2014 ') + $node['Parse AI'].json.from + ':\\n' + JSON.stringify($node['Parse AI'].json.brief, null, 2) }}"
+          },
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "id": "notify",
+      "name": "Notify Owner",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        2420,
+        340
+      ],
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "When called": {
+      "main": [
+        [
+          {
+            "node": "Load Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Context": {
+      "main": [
+        [
+          {
+            "node": "Knowledge Lookup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Knowledge Lookup": {
+      "main": [
+        [
+          {
+            "node": "Availability",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Availability": {
+      "main": [
+        [
+          {
+            "node": "Build Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Prompt": {
+      "main": [
+        [
+          {
+            "node": "AI (OmniRoute)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI (OmniRoute)": {
+      "main": [
+        [
+          {
+            "node": "Parse AI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse AI": {
+      "main": [
+        [
+          {
+            "node": "AI ok, or fall back?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI ok, or fall back?": {
+      "main": [
+        [
+          {
+            "node": "-> Deterministic Qualifier",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Reply": {
+      "main": [
+        [
+          {
+            "node": "Persist Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Persist Context": {
+      "main": [
+        [
+          {
+            "node": "Hand to Owner?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hand to Owner?": {
+      "main": [
+        [
+          {
+            "node": "Push Brief to Vault",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Push Brief to Vault": {
+      "main": [
+        [
+          {
+            "node": "Notify Owner",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "creaerrorhandler"
+  }
+}

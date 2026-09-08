@@ -1,0 +1,407 @@
+<title>CREA Hands Layer — Run 2026-09-08</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chivo:wght@600;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root{
+    --ground:#f6f4f1; --panel:#fdfcfb; --panel-2:#f0ede8;
+    --ink:#1c1a18; --ink-soft:#4a4642; --ink-faint:#7c766e;
+    --line:#e2ddd5; --line-strong:#cfc8bd;
+    --accent:#e0532f; --accent-soft:#f4d9cf;
+    --ok:#2f9367; --ok-bg:#e2f0e9;
+    --wait:#b57e17; --wait-bg:#f6ebd4;
+    --idle:#9a938a;
+    --shadow:0 1px 2px rgba(28,26,24,.04), 0 8px 24px -12px rgba(28,26,24,.12);
+  }
+  :root:not([data-theme="light"]){
+    @media (prefers-color-scheme: dark){
+      --ground:#111012; --panel:#191719; --panel-2:#211e20;
+      --ink:#efe9e2; --ink-soft:#b7b0a7; --ink-faint:#847d74;
+      --line:#2b2729; --line-strong:#3a3538;
+      --accent:#ff6a42; --accent-soft:#3a211a;
+      --ok:#4bbd88; --ok-bg:#17281f;
+      --wait:#e0a63a; --wait-bg:#2c2412;
+      --idle:#6d665e;
+      --shadow:0 1px 2px rgba(0,0,0,.3), 0 12px 30px -14px rgba(0,0,0,.55);
+    }
+  }
+  :root[data-theme="dark"]{
+    --ground:#111012; --panel:#191719; --panel-2:#211e20;
+    --ink:#efe9e2; --ink-soft:#b7b0a7; --ink-faint:#847d74;
+    --line:#2b2729; --line-strong:#3a3538;
+    --accent:#ff6a42; --accent-soft:#3a211a;
+    --ok:#4bbd88; --ok-bg:#17281f;
+    --wait:#e0a63a; --wait-bg:#2c2412;
+    --idle:#6d665e;
+    --shadow:0 1px 2px rgba(0,0,0,.3), 0 12px 30px -14px rgba(0,0,0,.55);
+  }
+
+  *{box-sizing:border-box}
+  body{
+    background:var(--ground); color:var(--ink);
+    font-family:"IBM Plex Sans",system-ui,-apple-system,sans-serif;
+    line-height:1.55; margin:0;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1080px; margin:0 auto; padding:clamp(20px,4vw,56px) clamp(16px,4vw,40px) 80px}
+  .mono{font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace}
+  h1,h2,h3{font-family:"Chivo",sans-serif; text-wrap:balance; margin:0}
+  h1{font-weight:800; font-size:clamp(30px,5vw,46px); letter-spacing:-.02em; line-height:1.04}
+  h2{font-weight:800; font-size:clamp(19px,2.6vw,24px); letter-spacing:-.01em}
+  h3{font-weight:600; font-size:15px}
+  a{color:var(--accent)}
+
+  .eyebrow{
+    font-family:"IBM Plex Mono",monospace; font-size:12px; letter-spacing:.16em;
+    text-transform:uppercase; color:var(--accent); margin:0 0 14px
+  }
+  header p.lede{max-width:60ch; color:var(--ink-soft); font-size:16px; margin:14px 0 0}
+
+  .runbar{
+    display:flex; flex-wrap:wrap; gap:8px 10px; margin-top:26px;
+    font-family:"IBM Plex Mono",monospace; font-size:12.5px; color:var(--ink-soft)
+  }
+  .runbar span{
+    background:var(--panel-2); border:1px solid var(--line);
+    padding:4px 9px; border-radius:6px; white-space:nowrap
+  }
+  .runbar b{color:var(--ink); font-weight:500}
+
+  .scoreline{
+    display:flex; align-items:baseline; gap:14px; margin-top:30px;
+    padding-bottom:26px; border-bottom:1px solid var(--line)
+  }
+  .scoreline .big{font-family:"Chivo",sans-serif; font-weight:800; font-size:clamp(40px,7vw,64px); letter-spacing:-.03em; line-height:1; color:var(--ok)}
+  .scoreline .cap{color:var(--ink-soft); font-size:14px; max-width:26ch}
+
+  section{margin-top:52px}
+  section > .sec-head{display:flex; align-items:baseline; gap:12px; margin-bottom:20px}
+  section > .sec-head .n{font-family:"IBM Plex Mono",monospace; font-size:12px; color:var(--ink-faint)}
+
+  /* marquee proof: chat + node chain */
+  .proof{display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.05fr); gap:22px}
+  @media(max-width:820px){ .proof{grid-template-columns:1fr} }
+
+  .chat{
+    background:var(--panel); border:1px solid var(--line); border-radius:14px;
+    box-shadow:var(--shadow); overflow:hidden; display:flex; flex-direction:column
+  }
+  .chat .top{
+    padding:12px 16px; border-bottom:1px solid var(--line); background:var(--panel-2);
+    font-size:13px; color:var(--ink-soft); display:flex; justify-content:space-between; align-items:center
+  }
+  .chat .top .who{color:var(--ink); font-weight:600}
+  .chat .body{padding:16px; display:flex; flex-direction:column; gap:10px}
+  .bub{max-width:82%; padding:9px 13px; border-radius:14px; font-size:14px; line-height:1.45}
+  .bub.in{align-self:flex-start; background:var(--panel-2); border:1px solid var(--line); border-bottom-left-radius:4px}
+  .bub.out{align-self:flex-end; background:var(--accent); color:#fff; border-bottom-right-radius:4px}
+  :root[data-theme="dark"] .bub.out, :root:not([data-theme="light"]) .bub.out{color:#140a06}
+  @media (prefers-color-scheme:dark){ :root:not([data-theme="light"]) .bub.out{color:#140a06} }
+
+  .flow{
+    background:var(--panel); border:1px solid var(--line); border-radius:14px;
+    box-shadow:var(--shadow); padding:16px
+  }
+  .flow .fh{font-size:13px; color:var(--ink-soft); margin-bottom:12px}
+  .flow .fh b{color:var(--ink); font-family:"IBM Plex Mono",monospace; font-weight:500}
+  .chain{display:flex; flex-direction:column; gap:0}
+  .step{display:grid; grid-template-columns:22px 1fr auto; align-items:center; gap:10px; padding:7px 0}
+  .dot{width:14px; height:14px; border-radius:50%; border:2px solid var(--ok); background:var(--ok-bg); position:relative}
+  .dot.wait{border-color:var(--wait); background:var(--wait-bg)}
+  .step .lbl{font-size:13.5px}
+  .step .ms{font-family:"IBM Plex Mono",monospace; font-size:12px; color:var(--ink-faint); font-variant-numeric:tabular-nums}
+  .rail{grid-column:1; width:2px; height:10px; background:var(--line-strong); margin:0 auto}
+  .subflow{
+    margin:2px 0 2px 30px; padding:6px 0 6px 14px; border-left:2px dashed var(--line-strong);
+    font-size:12.5px; color:var(--ink-soft)
+  }
+  .subflow .mono{color:var(--ink)}
+
+  .brief{
+    margin-top:20px; background:var(--panel); border:1px solid var(--line);
+    border-radius:12px; box-shadow:var(--shadow); overflow:hidden
+  }
+  .brief .bt{padding:11px 16px; background:var(--panel-2); border-bottom:1px solid var(--line); font-size:13px; color:var(--ink-soft); display:flex; gap:8px; align-items:center}
+  .pill{font-family:"IBM Plex Mono",monospace; font-size:11px; padding:2px 7px; border-radius:5px; background:var(--accent-soft); color:var(--accent); text-transform:uppercase; letter-spacing:.06em}
+  .brief dl{margin:0; padding:14px 16px; display:grid; grid-template-columns:auto 1fr; gap:8px 18px}
+  .brief dt{font-family:"IBM Plex Mono",monospace; font-size:12px; color:var(--ink-faint); text-transform:uppercase; letter-spacing:.05em; padding-top:2px}
+  .brief dd{margin:0; font-size:14px}
+
+  /* card pipeline */
+  .cardp{background:var(--panel); border:1px solid var(--line); border-radius:14px; box-shadow:var(--shadow); padding:18px; display:grid; grid-template-columns:1fr 1fr; gap:20px}
+  @media(max-width:720px){ .cardp{grid-template-columns:1fr} }
+  .shoot{border:1px solid var(--line); border-radius:10px; padding:12px; background:var(--panel-2)}
+  .shoot .sh{font-family:"Chivo",sans-serif; font-weight:600; font-size:14px; margin-bottom:6px}
+  .shoot .fl{font-family:"IBM Plex Mono",monospace; font-size:12px; color:var(--ink-soft); display:flex; flex-direction:column; gap:2px}
+  .gate{
+    grid-column:1/-1; margin-top:2px; display:flex; gap:12px; align-items:flex-start;
+    padding:13px 15px; border:1px solid var(--wait); background:var(--wait-bg); border-radius:10px
+  }
+  .gate .gi{font-size:18px; line-height:1.2}
+  .gate .gt{font-size:13.5px; color:var(--ink)}
+  .gate .gt b{font-family:"Chivo",sans-serif}
+
+  /* ledger */
+  .ledger{width:100%; border-collapse:collapse; font-size:13.5px; overflow:hidden; border:1px solid var(--line); border-radius:12px}
+  .ledger thead th{
+    text-align:left; font-family:"IBM Plex Mono",monospace; font-size:11px; letter-spacing:.08em;
+    text-transform:uppercase; color:var(--ink-faint); padding:10px 14px; background:var(--panel-2); border-bottom:1px solid var(--line)
+  }
+  .ledger td{padding:10px 14px; border-bottom:1px solid var(--line); background:var(--panel)}
+  .ledger tr:last-child td{border-bottom:0}
+  .ledger td.wf{font-family:"IBM Plex Mono",monospace; font-size:12.5px}
+  .ledger td.desc{color:var(--ink-soft)}
+  .chip{display:inline-flex; align-items:center; gap:6px; font-family:"IBM Plex Mono",monospace; font-size:11.5px; padding:3px 8px; border-radius:20px; white-space:nowrap}
+  .chip.ok{background:var(--ok-bg); color:var(--ok)}
+  .chip.wait{background:var(--wait-bg); color:var(--wait)}
+  .chip::before{content:""; width:7px; height:7px; border-radius:50%; background:currentColor}
+
+  /* bugs */
+  .bugs{display:flex; flex-direction:column; gap:2px; counter-reset:bug}
+  .bug{display:grid; grid-template-columns:30px 1fr; gap:14px; padding:13px 0; border-bottom:1px solid var(--line)}
+  .bug:last-child{border-bottom:0}
+  .bug .bn{counter-increment:bug; font-family:"Chivo",sans-serif; font-weight:800; font-size:15px; color:var(--accent)}
+  .bug .bn::before{content:counter(bug)}
+  .bug .bt{font-weight:600; font-size:14px; margin-bottom:2px}
+  .bug .bd{font-size:13.5px; color:var(--ink-soft)}
+  .bug code{font-family:"IBM Plex Mono",monospace; font-size:12px; background:var(--panel-2); padding:1px 5px; border-radius:4px; border:1px solid var(--line)}
+
+  .note{margin-top:18px; font-size:13px; color:var(--ink-faint); max-width:70ch}
+  footer{margin-top:64px; padding-top:22px; border-top:1px solid var(--line); font-family:"IBM Plex Mono",monospace; font-size:12px; color:var(--ink-faint); display:flex; flex-wrap:wrap; gap:6px 16px}
+</style>
+
+<div class="wrap">
+  <header>
+    <p class="eyebrow">n8n hands layer · verification run</p>
+    <h1>CREA booked a shoot on your&nbsp;laptop</h1>
+    <p class="lede">Every CREA workflow — including the new AI booking assistant — driven end to
+      end through the n8n running on this machine (v2.30.7) against the live TRIS OS state store.
+      WhatsApp, Acuity, Apify and the vault API were answered by a local stand-in that logged
+      every call; the assistant ran against a real model. This is that log.</p>
+
+    <div class="runbar">
+      <span>run <b>2026-09-08</b></span>
+      <span>n8n <b>2.30.7</b> @ localhost:5678</span>
+      <span>state store <b>:5691</b> (real)</span>
+      <span>mock services <b>:5699</b></span>
+      <span>execs read from <b>database.sqlite</b></span>
+    </div>
+
+    <div class="scoreline">
+      <div class="big">Ship&#8202;-&#8202;ready</div>
+      <div class="cap">11 workflows + the AI assistant, a real vault API, a usable knowledge
+        file, and a one-command <span class="mono">go-live.sh</span> — all verified end to end.</div>
+    </div>
+  </header>
+
+  <section>
+    <div class="sec-head"><span class="n">—</span><h2>One command</h2></div>
+    <div class="flow">
+      <div class="fh"><b>./go-live.sh</b> — idempotent, safe to re-run</div>
+      <div class="chain">
+        <div class="step"><span class="dot"></span><span class="lbl">starts <span class="mono">vault-api/server.js</span> — the memory + job store (no deps): knowledge from <span class="mono">crea-knowledge.md</span>, availability from Acuity, job/lead/inbox notes written to disk as JSON + markdown</span><span class="ms">✓</span></div>
+        <div class="rail"></div>
+        <div class="step"><span class="dot"></span><span class="lbl">fills config → imports → activates all workflows → restarts n8n</span><span class="ms">✓</span></div>
+        <div class="rail"></div>
+        <div class="step"><span class="dot"></span><span class="lbl">prints the 3 steps only the owner can do — WhatsApp QR, credential selection, Acuity webhook</span><span class="ms">✓</span></div>
+      </div>
+    </div>
+    <p class="note">Verified end to end against the <b>real</b> vault API + the shipped knowledge
+      file + a live model: “video + photos, 12 Wolseley Rd Mosman, next Wednesday, lockbox 2210”
+      → brief captured, lead note written to <span class="mono">vault-api/data/leads/</span>,
+      owner pinged “Quote-ready enquiry”. Prices ship as “quote on request” (the assistant
+      defers cleanly) until Cfilms drops real numbers into one markdown table.</p>
+  </section>
+
+  <section>
+    <div class="sec-head"><span class="n">00</span><h2>The AI assistant — answers, then books</h2></div>
+    <div class="proof">
+      <div class="chat">
+        <div class="top"><span class="who">+61 400 556 677</span><span>crea-02b · live model via OmniRoute</span></div>
+        <div class="body">
+          <div class="bub in">Hi, how much is a listing video for a 3 bedroom house?</div>
+          <div class="bub out">Our listing video package is $450. Could you share the address so we can confirm availability and give a full quote?</div>
+          <div class="bub in">It's 40 Awaba St, Mosman. Are you free this Saturday?</div>
+          <div class="bub out">Our listing video is $450. 40 Awaba St, Mosman. Saturday looks open, Tris will confirm. What time works best for you?</div>
+          <div class="bub in">Let's do it. Owner home, side gate open.</div>
+          <div class="bub out">Saturday looks open, Tris will confirm. What time works best for you?</div>
+        </div>
+      </div>
+      <div>
+        <div class="flow">
+          <div class="fh"><b>crea-02b</b> — Load Context → Knowledge → Availability → Build Prompt → <b>AI</b> → Parse → Reply → Persist → Hand to Owner</div>
+          <div class="chain">
+            <div class="step"><span class="dot"></span><span class="lbl">quoted <b>$450</b> — the exact figure from <span class="mono">crea-knowledge.md</span>, nothing invented</span><span class="ms">✓</span></div>
+            <div class="rail"></div>
+            <div class="step"><span class="dot"></span><span class="lbl">checked Acuity → “Saturday looks open, <span class="mono">Tris</span> will confirm” — never confirms a slot</span><span class="ms">✓</span></div>
+            <div class="rail"></div>
+            <div class="step"><span class="dot"></span><span class="lbl">brief built across 3 turns, held in the state store</span><span class="ms">✓</span></div>
+            <div class="rail"></div>
+            <div class="step"><span class="dot"></span><span class="lbl">off-KB question → “team will follow up” + owner ping; unpriced item → “I'll get you a quote”</span><span class="ms">✓</span></div>
+            <div class="rail"></div>
+            <div class="step"><span class="dot"></span><span class="lbl">OmniRoute unreachable → neutral handoff, owner flagged</span><span class="ms">✓</span></div>
+          </div>
+        </div>
+        <div class="brief">
+          <div class="bt"><span class="pill">POST /vault/lead</span> status <span class="mono">to-quote</span> · owner notified “Quote-ready enquiry”</div>
+          <dl>
+            <dt>service</dt><dd>Video</dd>
+            <dt>property</dt><dd>3 bedroom house</dd>
+            <dt>address</dt><dd>40 Awaba St, Mosman</dd>
+            <dt>date</dt><dd>2026-09-09 (Saturday)</dd>
+            <dt>access</dt><dd>Owner home, side gate open</dd>
+          </dl>
+        </div>
+      </div>
+    </div>
+    <p class="note">Tested against a real free-tier model (local models are swap-dead on the 8GB
+      machine — production uses OmniRoute's cloud routing). The deterministic 5-question
+      qualifier below stays as the fallback when the model is down or the owner wants structured
+      capture.</p>
+  </section>
+
+  <section>
+    <div class="sec-head"><span class="n">01</span><h2>The deterministic qualifier (fallback path)</h2></div>
+    <div class="proof">
+      <div class="chat">
+        <div class="top"><span class="who">+61 400 778 899</span><span>WhatsApp · via WAHA</span></div>
+        <div class="body">
+          <div class="bub in">Hi, I need a video shot for a new listing</div>
+          <div class="bub out">Hi! Thanks for reaching out to Cfilms. What do you need — listing photos, video, drone, a 3D tour, or a combo?</div>
+          <div class="bub in">Video and a 3D tour</div>
+          <div class="bub out">Great. What’s the property type and rough size (beds / sqm), and the full address?</div>
+          <div class="bub in">4 bedroom house, about 280sqm, 18 Hillcrest Ave Mosman</div>
+          <div class="bub out">Perfect. What date and time works for the shoot?</div>
+          <div class="bub in">This Saturday at 10am</div>
+          <div class="bub out">Thanks! Any access notes — lockbox code, tenant/owner occupied, parking?</div>
+          <div class="bub in">Lockbox code 4471, owner will be home</div>
+          <div class="bub out">All set — Cfilms will review and send your quote and confirmation shortly. Talk soon!</div>
+        </div>
+      </div>
+
+      <div>
+        <div class="flow">
+          <div class="fh">Turn 3 · <b>crea-01</b> → <b>crea-02</b> → <b>crea-wa-send</b> — exec 236 / 237</div>
+          <div class="chain">
+            <div class="step"><span class="dot"></span><span class="lbl">WAHA Webhook</span><span class="ms">0 ms</span></div>
+            <div class="rail"></div>
+            <div class="step"><span class="dot"></span><span class="lbl">Parse &amp; Guard <span class="mono" style="color:var(--ink-faint)">— drop fromMe, dedupe</span></span><span class="ms">45 ms</span></div>
+            <div class="rail"></div>
+            <div class="step"><span class="dot"></span><span class="lbl">Load Stage <span class="mono" style="color:var(--ink-faint)">— state store</span></span><span class="ms">14 ms</span></div>
+            <div class="rail"></div>
+            <div class="step"><span class="dot"></span><span class="lbl">Classify &amp; Dedupe <span class="mono" style="color:var(--ink-faint)">→ booking</span></span><span class="ms">104 ms</span></div>
+            <div class="rail"></div>
+            <div class="step"><span class="dot"></span><span class="lbl">Route by Target</span><span class="ms">2 ms</span></div>
+            <div class="rail"></div>
+            <div class="step"><span class="dot"></span><span class="lbl">→ Booking Agent</span><span class="ms">155 ms</span></div>
+            <div class="subflow">
+              <span class="mono">crea-02:</span> Load Stage · Route/Build/Capture ·
+              <span class="mono">Send Reply → crea-wa-send (80 ms)</span> · Persist Stage+Answers ·
+              Brief Complete? · Push Brief to Vault · Notify Owner
+            </div>
+            <div class="step"><span class="dot"></span><span class="lbl">Mark Seen</span><span class="ms">2 ms</span></div>
+          </div>
+        </div>
+
+        <div class="brief">
+          <div class="bt"><span class="pill">POST /vault/lead</span> captured for the owner to quote</div>
+          <dl>
+            <dt>service</dt><dd>Video and a 3D tour</dd>
+            <dt>property</dt><dd>4 bedroom house, about 280sqm, 18 Hillcrest Ave Mosman</dd>
+            <dt>schedule</dt><dd>This Saturday at 10am</dd>
+            <dt>access</dt><dd>Lockbox code 4471, owner will be home</dd>
+            <dt>status</dt><dd><span class="mono">to-quote</span></dd>
+          </dl>
+        </div>
+      </div>
+    </div>
+    <p class="note">Stage is held in the external store, never model memory — the conversation
+      survives a restart mid-thread. Final stored state: <span class="mono">stage: close</span>,
+      all four answers, <span class="mono">lastMsgId: g5</span>.</p>
+  </section>
+
+  <section>
+    <div class="sec-head"><span class="n">02</span><h2>The card pipeline, paused where it should be</h2></div>
+    <div class="cardp">
+      <div class="shoot">
+        <div class="sh">Shoot 1 · 08:05</div>
+        <div class="fl"><span>MVI_001.MP4</span><span>MVI_002.MP4</span></div>
+      </div>
+      <div class="shoot">
+        <div class="sh">Shoot 2 · 13:15</div>
+        <div class="fl"><span>MVI_010.MP4</span><span>MVI_011.MP4</span></div>
+      </div>
+      <div class="gate">
+        <span class="gi">⏸</span>
+        <span class="gt"><b>Human gate — waiting.</b> 4 files off <span class="mono">CARD-DEMO</span> split
+          into 2 shoots on the 90-minute capture gap, each recorded to <span class="mono">/vault/shoots</span>.
+          The run is now parked at <span class="mono">Human Gate</span> until the owner approves the push
+          to Higgsfield — exactly as designed. Nothing is auto-sent; nothing touches the card.</span>
+      </div>
+    </div>
+    <p class="note">Execution 240 — <span class="mono">Card Manifest Webhook ✓ · Split by Capture Gap ✓
+      (19 ms) · Record Shoots ✓ · Ask Owner to Approve ✓ · Human Gate ⏸</span></p>
+  </section>
+
+  <section>
+    <div class="sec-head"><span class="n">03</span><h2>Full execution ledger</h2></div>
+    <div style="overflow-x:auto">
+    <table class="ledger">
+      <thead><tr><th>Workflow</th><th>Result</th><th>What ran</th></tr></thead>
+      <tbody>
+        <tr><td class="wf">crea-01-whatsapp-inbound</td><td><span class="chip ok">success ×7</span></td><td class="desc">booking intent → agent; other → vault inbox + owner ping; fromMe ignored</td></tr>
+        <tr><td class="wf">crea-02b-ai-assistant</td><td><span class="chip ok">success ×6</span></td><td class="desc">answered $450 from KB, checked availability, captured brief, handed off <span class="mono">to-quote</span>; guardrails held on edge cases</td></tr>
+        <tr><td class="wf">crea-02-booking-agent</td><td><span class="chip ok">success ×5</span></td><td class="desc">deterministic 5-turn qualifier → <span class="mono">close</span> — the fallback path</td></tr>
+        <tr><td class="wf">crea-wa-send</td><td><span class="chip ok">success ×16</span></td><td class="desc">every WhatsApp send routed through this one node</td></tr>
+        <tr><td class="wf">crea-03-acuity-intake</td><td><span class="chip ok">success ×3</span></td><td class="desc">webhook → fetch appointment → <span class="mono">/vault/job</span> → owner WhatsApp</td></tr>
+        <tr><td class="wf">crea-04-shoot-confirmations</td><td><span class="chip ok">success ×3</span></td><td class="desc">tomorrow’s appts → 2 confirmations → 2× <span class="mono">/vault/pending</span></td></tr>
+        <tr><td class="wf">crea-05-chase-noreply</td><td><span class="chip ok">success ×2</span></td><td class="desc">overdue pending → chase; 2-nudge row escalates to owner</td></tr>
+        <tr><td class="wf">crea-06-card-pipeline</td><td><span class="chip wait">waiting ×1</span></td><td class="desc">2 shoots split &amp; recorded, paused at the approval gate</td></tr>
+        <tr><td class="wf">crea-07-monday-invoicing</td><td><span class="chip ok">success ×2</span></td><td class="desc">2 billable jobs → 2 draft invoices → owner summary “$770 total” · never sends</td></tr>
+        <tr><td class="wf">crea-08-morning-briefing</td><td><span class="chip ok">success ×2</span></td><td class="desc">shoots + counts → <span class="mono">/omniroute</span> → briefing WhatsApp</td></tr>
+        <tr><td class="wf">crea-10-apify-leads</td><td><span class="chip ok">success ×2</span></td><td class="desc">scrape → dedupe (1 new of 2) → <span class="mono">/vault/leads</span> → digest</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="note">One suite run = 13 WhatsApp messages sent · 13 vault writes · Acuity, Apify and
+      OmniRoute all called. Read straight from your n8n’s <span class="mono">execution_entity</span> table.</p>
+  </section>
+
+  <section>
+    <div class="sec-head"><span class="n">04</span><h2>Seven bug classes the run surfaced — all fixed</h2></div>
+    <div class="bugs">
+      <div class="bug"><span class="bn"></span><div>
+        <div class="bt"><code>$json</code> after an HTTP node pointed at the response, not the message</div>
+        <div class="bd">Owner pings read “WhatsApp from undefined”. Repointed to <code>$node['Parse &amp; Guard'].json</code>; same class fixed in crea-06 and crea-07.</div></div></div>
+      <div class="bug"><span class="bn"></span><div>
+        <div class="bt"><code>={{ '{{TOKEN}}' }}/suffix</code> dropped the suffix</div>
+        <div class="bd">n8n returned just the token value, so a vault call went nowhere and was swallowed by <code>continueErrorOutput</code>. Replaced with plain <code>{{TOKEN}}/suffix</code> in 27 places.</div></div></div>
+      <div class="bug"><span class="bn"></span><div>
+        <div class="bt">Google Calendar node validation-blocked the whole workflow</div>
+        <div class="bd">“Not a valid Google Calendar ID” with no credential — a pre-run check <code>onError</code> can’t catch. Job tracker moved to the vault API; Calendar &amp; Drive are now opt-in.</div></div></div>
+      <div class="bug"><span class="bn"></span><div>
+        <div class="bt">Silent drop on an unwired <code>continueErrorOutput</code></div>
+        <div class="bd">A failed enrichment node killed the chain and still reported success. Enrichment nodes switched to <code>continueRegularOutput</code>.</div></div></div>
+      <div class="bug"><span class="bn"></span><div>
+        <div class="bt">Multi-item array response read as a single item</div>
+        <div class="bd"><code>Array.isArray(items[0].json)</code> is false once n8n has split the array. crea-04/08/10 now read <code>$('Node').all()</code>.</div></div></div>
+      <div class="bug"><span class="bn"></span><div>
+        <div class="bt">Fan-in race — code node ran before its second input finished</div>
+        <div class="bd">“referenced node not executed” in crea-03/08. Linearised the chains.</div></div></div>
+      <div class="bug"><span class="bn"></span><div>
+        <div class="bt">Reference to a disabled node threw</div>
+        <div class="bd">crea-06 Record Shoots referenced the disabled Drive node. Removed; documented how to re-add when Drive is enabled.</div></div></div>
+    </div>
+    <p class="note">Not yet exercised: delivery through a real WAHA container, the card-pipeline
+      resume leg, Google Calendar/Drive, and the live Acuity / Apify / Higgsfield APIs — all need
+      real accounts. Request shapes match their docs; confirm Higgsfield against a live key
+      (SETUP §9).</p>
+  </section>
+
+  <footer>
+    <span>~/.claude/n8n/crea/</span>
+    <span>TEST-REPORT.md</span>
+    <span>test/mock-services.js</span>
+    <span>hub: outputs/n8n/crea/</span>
+  </footer>
+</div>

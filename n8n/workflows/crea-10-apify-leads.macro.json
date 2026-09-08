@@ -1,0 +1,239 @@
+{
+  "id": "creaapifyleads",
+  "name": "CREA — Apify Leads (Macro)",
+  "meta": {
+    "trisFamily": "scrape_enrich_extract",
+    "trisMode": "macro",
+    "trisVertical": "crea",
+    "trisNote": "Daily 07:00. Runs an Apify actor that scrapes fresh listings for the target area, dedupes against the tracker 'Leads' tab, appends new agents/listings as leads, and WhatsApps the owner a short digest of who to reach out to.",
+    "trisAtoms": [
+      "schedule",
+      "run_actor",
+      "read_known",
+      "dedupe",
+      "append_new",
+      "digest_to_owner"
+    ]
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 7 * * *"
+            }
+          ]
+        }
+      },
+      "id": "sched",
+      "name": "Daily 07:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        180,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ '{{CREA_APIFY_BASE}}/acts/' + '{{CREA_APIFY_ACTOR}}'.replace('/', '~') + '/run-sync-get-dataset-items' }}",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "token",
+              "value": "{{CREA_APIFY_TOKEN}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ area: '{{CREA_LEADS_AREA}}', maxItems: 50 }) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "run",
+      "name": "Run Apify Actor",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        400,
+        320
+      ],
+      "onError": "continueErrorOutput",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "{{CREA_VAULT_API_URL}}/leads",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "known",
+      "name": "Read Known Leads",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        620,
+        420
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 2
+    },
+    {
+      "parameters": {
+        "jsCode": "const scraped = $('Run Apify Actor').all().map(i => i.json).filter(x => x && (x.url || x.listingUrl || x.address));\nconst known = new Set($('Read Known Leads').all().map(i => (i.json.key || i.json.listingUrl || i.json.address || '').toLowerCase()).filter(Boolean));\nconst fresh = [];\nfor (const l of scraped) {\n  const key = (l.url || l.listingUrl || l.address || '').toLowerCase();\n  if (!key || known.has(key)) continue;\n  known.add(key);\n  fresh.push({ json: { key, agent: l.agentName || l.agent || '', agency: l.agency || '', address: l.address || '', listingUrl: l.url || l.listingUrl || '', price: l.price || '', status: 'lead', foundAt: new Date().toISOString(), checkInFlag: 'true' } });\n}\nreturn fresh.length ? fresh : [{ json: { _none: true } }];"
+      },
+      "id": "dedupe",
+      "name": "Dedupe -> New",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        840,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{CREA_VAULT_API_URL}}/leads",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "append",
+      "name": "Append New Leads",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1060,
+        240
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 2
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = items.map(i => i.json).filter(r => r && r.key);\nif (!rows.length) return [];\nconst lines = rows.slice(0, 10).map(r => `\\u2022 ${r.agent || r.agency || 'agent'} \\u2014 ${r.address}`).join('\\n');\nreturn [{ json: { to: '{{CREA_OWNER_WA}}', text: `${rows.length} new listing lead(s) today:\\n${lines}\\nOn the Leads tab, flagged for check-in.` } }];"
+      },
+      "id": "digest",
+      "name": "Digest",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1060,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "creawasend",
+          "mode": "id",
+          "cachedResultName": "CREA — WA Send (WAHA atomic)"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "to": "={{ $json.to }}",
+            "text": "={{ $json.text }}"
+          },
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "id": "send",
+      "name": "Notify Owner",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1280,
+        420
+      ],
+      "onError": "continueErrorOutput"
+    }
+  ],
+  "connections": {
+    "Daily 07:00": {
+      "main": [
+        [
+          {
+            "node": "Run Apify Actor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Apify Actor": {
+      "main": [
+        [
+          {
+            "node": "Read Known Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Known Leads": {
+      "main": [
+        [
+          {
+            "node": "Dedupe -> New",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dedupe -> New": {
+      "main": [
+        [
+          {
+            "node": "Append New Leads",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Digest": {
+      "main": [
+        [
+          {
+            "node": "Notify Owner",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "creaerrorhandler"
+  }
+}

@@ -1,0 +1,352 @@
+{
+  "name": "CREA — WhatsApp Inbound Capture (Macro)",
+  "meta": {
+    "trisFamily": "reliable_ingress",
+    "trisMode": "macro",
+    "trisVertical": "crea",
+    "trisNote": "Front door for the friend's personal WhatsApp (via WAHA). Ignores own outgoing messages, dedupes, then: an active booking conversation -> hand to Booking Agent; anything else -> vault inbox + a one-line notify to the owner. No model memory; routing is deterministic.",
+    "trisAtoms": [
+      "parse_inbound_message",
+      "dedupe",
+      "load_stage",
+      "classify_intent",
+      "route",
+      "persist_inbox"
+    ]
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "crea-wa-inbound",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "wh",
+      "name": "WAHA Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        200,
+        300
+      ],
+      "webhookId": "crea-wa-inbound"
+    },
+    {
+      "parameters": {
+        "jsCode": "const b = items[0].json.body || items[0].json;\nif (b.event && b.event !== 'message') return [];\nconst p = b.payload || b;\nif (p.fromMe === true) return [];\nconst type = p.type || 'chat';\nconst from = String(p.from || '').replace('@c.us','');\nif (!from) throw new Error('Inbound missing sender');\nconst text = (p.body || '').trim();\nreturn [{ json: { msgId: p.id || null, from, text, type, receivedAt: new Date().toISOString() } }];"
+      },
+      "id": "parse",
+      "name": "Parse & Guard",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        400,
+        300
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ '{{STATE_STORE_URL}}?key=' + $json.from }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "load",
+      "name": "Load Stage",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        600,
+        300
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const inc = $node['Parse & Guard'].json;\nconst stored = items[0].json || {};\n// dedupe: same message id already processed\nif (inc.msgId && stored.lastMsgId === inc.msgId) return [];\nconst activeBooking = (!!stored.stage && stored.stage !== 'close') || stored.mode === 'ai' || (Array.isArray(stored.transcript) && stored.transcript.length > 0 && !stored.booking_ready);\nconst t = (inc.text || '').toLowerCase();\nconst bookingWords = ['shoot','photo','photos','video','listing','book','booking','quote','drone','tour','floor plan','floorplan','twilight'];\nconst looksBooking = bookingWords.some(w => t.includes(w));\nconst target = (activeBooking || looksBooking) ? 'booking' : 'other';\nreturn [{ json: { ...inc, target, priorStage: stored.stage || null } }];"
+      },
+      "id": "classify",
+      "name": "Classify & Dedupe",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        800,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.target }}",
+                    "rightValue": "booking",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "outputKey": "booking"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "id": "route",
+      "name": "Route by Target",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        1000,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "{{CREA_BOOKING_WORKFLOW_ID}}",
+          "mode": "id",
+          "cachedResultName": "CREA booking handler"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "from": "={{ $json.from }}",
+            "text": "={{ $json.text }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "from",
+              "displayName": "from",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "text",
+              "displayName": "text",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "id": "tobook",
+      "name": "-> Booking Handler",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1220,
+        200
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{CREA_VAULT_API_URL}}/inbox",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ channel: 'whatsapp', from: $json.from, text: $json.text, type: $json.type, receivedAt: $json.receivedAt }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "inbox",
+      "name": "Vault Inbox",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1220,
+        400
+      ],
+      "onError": "continueErrorOutput",
+      "retryOnFail": true,
+      "maxTries": 2
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "creawasend",
+          "mode": "id",
+          "cachedResultName": "CREA — WA Send (WAHA atomic)"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "to": "{{CREA_OWNER_WA}}",
+            "text": "={{ 'WhatsApp from ' + $node['Parse & Guard'].json.from + ': ' + ($node['Parse & Guard'].json.text || ('(' + $node['Parse & Guard'].json.type + ')')) }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "to",
+              "displayName": "to",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "text",
+              "displayName": "text",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "id": "notify",
+      "name": "Notify Owner",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1440,
+        400
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{STATE_STORE_URL}}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ key: $node['Classify & Dedupe'].json.from, lastMsgId: $node['Classify & Dedupe'].json.msgId, lastInboundAt: $node['Classify & Dedupe'].json.receivedAt }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "mark",
+      "name": "Mark Seen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1440,
+        300
+      ],
+      "onError": "continueErrorOutput"
+    }
+  ],
+  "connections": {
+    "WAHA Webhook": {
+      "main": [
+        [
+          {
+            "node": "Parse & Guard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse & Guard": {
+      "main": [
+        [
+          {
+            "node": "Load Stage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Stage": {
+      "main": [
+        [
+          {
+            "node": "Classify & Dedupe",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify & Dedupe": {
+      "main": [
+        [
+          {
+            "node": "Route by Target",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Target": {
+      "main": [
+        [
+          {
+            "node": "-> Booking Handler",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Mark Seen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Vault Inbox",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Mark Seen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Vault Inbox": {
+      "main": [
+        [
+          {
+            "node": "Notify Owner",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "{{GLOBAL_ERROR_HANDLER_ID}}"
+  },
+  "id": "creawainbound"
+}

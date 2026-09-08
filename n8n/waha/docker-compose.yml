@@ -1,0 +1,26 @@
+# WAHA — WhatsApp HTTP API (unofficial, personal-number pairing) — per CREA manual §"WhatsApp Integration"
+# Runs on :3001 (host :3000 is taken by another dev server on this Mac).
+#
+#   cd ~/.claude/n8n/crea/waha
+#   cp .env.example .env   &&   edit .env   (set WAHA_API_KEY to a long random string)
+#   docker compose up -d
+#   open http://localhost:3001         -> scan the QR with the friend's phone (Linked Devices)
+#
+# Then in n8n config.env:  CREA_WAHA_URL=http://localhost:3001   CREA_WAHA_API_KEY=<same>   CREA_WAHA_SESSION=default
+# And point WAHA webhooks at n8n:  set WHATSAPP_HOOK_URL below to the crea-01 webhook.
+services:
+  waha:
+    image: devlikeapro/waha:latest
+    container_name: crea-waha
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      - WAHA_API_KEY=${WAHA_API_KEY}
+      - WHATSAPP_DEFAULT_ENGINE=WEBJS
+      - WHATSAPP_HOOK_URL=${WHATSAPP_HOOK_URL}
+      - WHATSAPP_HOOK_EVENTS=message
+      - WHATSAPP_RESTART_ALL_SESSIONS=true
+      - TZ=${TZ:-Australia/Sydney}
+    volumes:
+      - ./sessions:/app/.sessions

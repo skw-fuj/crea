@@ -1,0 +1,276 @@
+{
+  "id": "creamorningbrief",
+  "name": "CREA — Morning Briefing (Macro)",
+  "meta": {
+    "trisFamily": "scheduled_report_reminder",
+    "trisMode": "macro",
+    "trisVertical": "crea",
+    "trisNote": "06:30 owner TZ. Gathers today's shoots (Acuity), unconfirmed count + unpaid count + new leads (tracker), asks OmniRoute to phrase a tight 'what to focus on' briefing, and WhatsApps it to the owner. Read-only over the sources.",
+    "trisAtoms": [
+      "schedule",
+      "gather_today",
+      "gather_counts",
+      "compose_llm",
+      "deliver"
+    ]
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "30 6 * * *"
+            }
+          ]
+        }
+      },
+      "id": "sched",
+      "name": "Daily 06:30",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        180,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const d = new Date().toISOString().slice(0,10);\nreturn [{ json: { today: d } }];"
+      },
+      "id": "date",
+      "name": "Today",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        380,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "{{CREA_ACUITY_BASE}}/appointments",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "minDate",
+              "value": "={{ $json.today }}"
+            },
+            {
+              "name": "maxDate",
+              "value": "={{ $json.today }}"
+            },
+            {
+              "name": "max",
+              "value": "50"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "id": "appts",
+      "name": "Today's Shoots",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        600,
+        220
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 2
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "{{CREA_VAULT_API_URL}}/jobs",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "track",
+      "name": "Tracker",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        600,
+        420
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 2
+    },
+    {
+      "parameters": {
+        "jsCode": "const appts = $(\"Today's Shoots\").all().map(i => i.json).filter(a => a && a.datetime);\nconst rows = $('Tracker').all().map(i => i.json).filter(r => r && r.jobId);\nconst unpaid = rows.filter(r => String(r.status).toLowerCase()==='completed' && String(r.invoiced).toLowerCase()!=='true').length;\nconst leads = rows.filter(r => ['lead','to-quote'].includes(String(r.status).toLowerCase())).length;\nconst shoots = appts.map(a => ({ time: (a.datetime||'').slice(11,16), client: [a.firstName,a.lastName].filter(Boolean).join(' '), type: a.type, addr: a.location || '' }));\nreturn [{ json: { shoots, counts: { shootsToday: shoots.length, unpaid, leads }, date: $('Today').first().json.today } }];"
+      },
+      "id": "merge",
+      "name": "Merge Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        840,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{CREA_OMNIROUTE_URL}}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: '{{CREA_LLM_MODEL}}', messages: [ { role: 'system', content: 'You are CREA, a concise assistant for a real estate videographer. Write a 4-6 line WhatsApp morning briefing. Plain text, no markdown headers. Lead with today\\'s shoots in time order, then flag anything needing attention (unconfirmed, unpaid, new leads). Direct, no fluff.' }, { role: 'user', content: JSON.stringify($json) } ] }) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "llm",
+      "name": "Compose (OmniRoute)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1060,
+        320
+      ],
+      "onError": "continueErrorOutput",
+      "retryOnFail": true,
+      "maxTries": 2
+    },
+    {
+      "parameters": {
+        "jsCode": "const r = items[0].json || {};\nlet text = r.choices?.[0]?.message?.content || r.message?.content || r.content || '';\nif (!text) {\n  const c = $node['Merge Context'].json;\n  text = `Morning. ${c.counts.shootsToday} shoot(s) today.` + (c.counts.unpaid ? ` ${c.counts.unpaid} unpaid.` : '') + (c.counts.leads ? ` ${c.counts.leads} new lead(s).` : '');\n}\nreturn [{ json: { to: '{{CREA_OWNER_WA}}', text: String(text).trim() } }];"
+      },
+      "id": "extract",
+      "name": "Extract Text",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1280,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "creawasend",
+          "mode": "id",
+          "cachedResultName": "CREA — WA Send (WAHA atomic)"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "to": "={{ $json.to }}",
+            "text": "={{ $json.text }}"
+          },
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "id": "send",
+      "name": "Send Briefing",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1500,
+        320
+      ],
+      "onError": "continueErrorOutput"
+    }
+  ],
+  "connections": {
+    "Daily 06:30": {
+      "main": [
+        [
+          {
+            "node": "Today",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Today": {
+      "main": [
+        [
+          {
+            "node": "Today's Shoots",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Today's Shoots": {
+      "main": [
+        [
+          {
+            "node": "Tracker",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tracker": {
+      "main": [
+        [
+          {
+            "node": "Merge Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Context": {
+      "main": [
+        [
+          {
+            "node": "Compose (OmniRoute)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compose (OmniRoute)": {
+      "main": [
+        [
+          {
+            "node": "Extract Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Text": {
+      "main": [
+        [
+          {
+            "node": "Send Briefing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "{{GLOBAL_ERROR_HANDLER_ID}}"
+  }
+}

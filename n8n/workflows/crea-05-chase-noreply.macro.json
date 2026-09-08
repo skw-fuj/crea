@@ -1,0 +1,178 @@
+{
+  "id": "creachasenoreply",
+  "name": "CREA — Chase Non-Replies (Macro)",
+  "meta": {
+    "trisFamily": "outbound_sequencer",
+    "trisMode": "macro",
+    "trisVertical": "crea",
+    "trisNote": "Runs a few times through the day. Reads the tracker 'Pending' tab; for rows still unconfirmed and overdue, sends one more WhatsApp nudge (max 2), then after the 2nd nudge tells the owner to phone the client. CREA — WhatsApp Inbound Capture flips 'confirmed' to true when a reply lands.",
+    "trisAtoms": [
+      "schedule",
+      "read_pending",
+      "filter_overdue",
+      "chase_or_escalate",
+      "update_row"
+    ]
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9,12,15 * * *"
+            }
+          ]
+        }
+      },
+      "id": "sched",
+      "name": "3x Daily",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        200,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "{{CREA_VAULT_API_URL}}/pending",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "read",
+      "name": "Read Pending",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        400,
+        300
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 2
+    },
+    {
+      "parameters": {
+        "jsCode": "const B='{{CREA_BUSINESS_NAME}}';\nconst OVERDUE_H = 4;\nconst now = Date.now();\nconst out = [];\nfor (const it of items) {\n  const r = it.json;\n  if (String(r.confirmed).toLowerCase() === 'true') continue;\n  const chases = parseInt(r.chases || '0', 10);\n  const last = Date.parse(r.lastChaseAt || r.sentAt || '') || 0;\n  if (!last || (now - last) < OVERDUE_H*3600*1000) continue;\n  if (chases >= 2) {\n    out.push({ json: { ...r, mode: 'escalate', chases,\n      text: `\\u26a0\\ufe0f ${r.client || r.phone} hasn't confirmed tomorrow's shoot after 2 nudges. Give them a call.`,\n      to: '{{CREA_OWNER_WA}}' } });\n  } else {\n    out.push({ json: { ...r, mode: 'chase', chases: chases + 1,\n      text: `Hi ${r.client || 'there'}, just checking in from ${B} \\u2014 are we still good for tomorrow's shoot? A quick YES or NO helps us plan. Thanks!`,\n      to: r.phone } });\n  }\n}\nreturn out;"
+      },
+      "id": "filter",
+      "name": "Filter Overdue",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        600,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "creawasend",
+          "mode": "id",
+          "cachedResultName": "CREA — WA Send (WAHA atomic)"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "to": "={{ $json.to }}",
+            "text": "={{ $json.text }}"
+          },
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "send",
+      "name": "Send Chase/Escalation",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        820,
+        300
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{CREA_VAULT_API_URL}}/pending/update",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ jobId: $node['Filter Overdue'].json.jobId, chases: $node['Filter Overdue'].json.chases, lastChaseAt: new Date().toISOString() }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "upd",
+      "name": "Update Row",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1040,
+        300
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 2
+    }
+  ],
+  "connections": {
+    "3x Daily": {
+      "main": [
+        [
+          {
+            "node": "Read Pending",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Pending": {
+      "main": [
+        [
+          {
+            "node": "Filter Overdue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Overdue": {
+      "main": [
+        [
+          {
+            "node": "Send Chase/Escalation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Chase/Escalation": {
+      "main": [
+        [
+          {
+            "node": "Update Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "{{GLOBAL_ERROR_HANDLER_ID}}"
+  }
+}

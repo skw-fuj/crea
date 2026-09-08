@@ -1,0 +1,281 @@
+{
+  "id": "creacardpipeline",
+  "name": "CREA — Card Pipeline (Macro)",
+  "meta": {
+    "trisFamily": "ai_media_assembly",
+    "trisMode": "macro",
+    "trisVertical": "crea",
+    "trisNote": "Triggered by CREA's local card-detect script (which does the copy + verify — n8n NEVER touches the card). Receives the file manifest, splits it into shoots by capture-gap, makes a Drive folder per shoot, then HUMAN GATE: owner replies to approve before anything is pushed to Higgsfield and the editor is notified. Nothing here formats or deletes.",
+    "trisAtoms": [
+      "receive_manifest",
+      "split_by_gap",
+      "create_drive_folders",
+      "record_shoots",
+      "human_gate",
+      "higgsfield_push",
+      "notify_editor"
+    ],
+    "trisSetupNote": "Create Drive Folder is DISABLED by default (needs the CREA Google credential). Enable it and wire Split -> Create Drive Folder -> Record Shoots once Google is connected; then add driveFolderId to the Record Shoots + Higgsfield bodies."
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "crea-card",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "wh",
+      "name": "Card Manifest Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        180,
+        320
+      ],
+      "webhookId": "crea-card"
+    },
+    {
+      "parameters": {
+        "jsCode": "const b = items[0].json.body || items[0].json;\nconst files = (b.files || []).filter(f => f && f.capturedAt).sort((a,z) => Date.parse(a.capturedAt) - Date.parse(z.capturedAt));\nif (!files.length) throw new Error('Card manifest has no files with capturedAt');\nconst GAP = parseInt('{{CREA_SHOOT_GAP_MINUTES}}', 10) * 60 * 1000;\nconst shoots = [];\nlet cur = null;\nfor (const f of files) {\n  const t = Date.parse(f.capturedAt);\n  if (!cur || (t - cur.lastT) > GAP) { cur = { start: f.capturedAt, files: [], lastT: t }; shoots.push(cur); }\n  cur.files.push(f); cur.lastT = t;\n}\nreturn shoots.map((s, i) => ({ json: {\n  cardId: b.cardId || null,\n  shootIndex: i + 1,\n  shootCount: shoots.length,\n  start: s.start,\n  fileCount: s.files.length,\n  files: s.files.map(f => f.name || f.path),\n  folderName: '{{CREA_HIGGSFIELD_PROJECT_PREFIX}} ' + s.start.slice(0,10) + ' shoot ' + (i + 1)\n} }));"
+      },
+      "id": "split",
+      "name": "Split by Capture Gap",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        400,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "folder",
+        "operation": "create",
+        "name": "={{ $json.folderName }}",
+        "driveId": {
+          "__rl": true,
+          "value": "My Drive",
+          "mode": "list"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "{{CREA_DRIVE_PARENT_FOLDER_ID}}",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "id": "drive",
+      "name": "Create Drive Folder",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        640,
+        240
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{CREA_VAULT_API_URL}}/shoots",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ cardId: $node['Split by Capture Gap'].json.cardId, shootIndex: $node['Split by Capture Gap'].json.shootIndex, start: $node['Split by Capture Gap'].json.start, fileCount: $node['Split by Capture Gap'].json.fileCount, folderName: $node['Split by Capture Gap'].json.folderName }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "rec",
+      "name": "Record Shoots",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        860,
+        240
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 2
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "creawasend",
+          "mode": "id",
+          "cachedResultName": "CREA — WA Send (WAHA atomic)"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "to": "{{CREA_OWNER_WA}}",
+            "text": "={{ 'Card ' + ($node['Split by Capture Gap'].json.cardId || '') + ': ' + $node['Split by Capture Gap'].json.shootCount + ' shoot(s), ' + $node['Split by Capture Gap'].json.fileCount + ' files in shoot ' + $node['Split by Capture Gap'].json.shootIndex + '. Folders created. Approve push to editor? ' + $execution.resumeUrl }}"
+          },
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "ask",
+      "name": "Ask Owner to Approve",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1080,
+        240
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "resume": "webhook",
+        "options": {}
+      },
+      "id": "gate",
+      "name": "Human Gate",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1300,
+        240
+      ],
+      "webhookId": "crea-card-approve"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{CREA_HIGGSFIELD_URL}}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ project: $node['Split by Capture Gap'].json.folderName, files: $node['Split by Capture Gap'].json.files }) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "id": "higgs",
+      "name": "Push to Higgsfield",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1520,
+        240
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 2
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "creawasend",
+          "mode": "id",
+          "cachedResultName": "CREA — WA Send (WAHA atomic)"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "to": "{{CREA_EDITOR_WA}}",
+            "text": "={{ 'New project ready: ' + $node['Split by Capture Gap'].json.folderName + ' \\u2014 ' + $node['Split by Capture Gap'].json.fileCount + ' files in Drive + Higgsfield.' }}"
+          },
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "id": "editor",
+      "name": "Notify Editor",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1740,
+        240
+      ],
+      "onError": "continueErrorOutput"
+    }
+  ],
+  "connections": {
+    "Card Manifest Webhook": {
+      "main": [
+        [
+          {
+            "node": "Split by Capture Gap",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split by Capture Gap": {
+      "main": [
+        [
+          {
+            "node": "Record Shoots",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Record Shoots": {
+      "main": [
+        [
+          {
+            "node": "Ask Owner to Approve",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ask Owner to Approve": {
+      "main": [
+        [
+          {
+            "node": "Human Gate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Human Gate": {
+      "main": [
+        [
+          {
+            "node": "Push to Higgsfield",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Push to Higgsfield": {
+      "main": [
+        [
+          {
+            "node": "Notify Editor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "{{GLOBAL_ERROR_HANDLER_ID}}"
+  }
+}

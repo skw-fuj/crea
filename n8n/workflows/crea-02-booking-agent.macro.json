@@ -1,0 +1,330 @@
+{
+  "name": "CREA — WhatsApp Booking Agent (Macro)",
+  "meta": {
+    "trisFamily": "conversation_state_machine",
+    "trisMode": "macro",
+    "trisVertical": "crea",
+    "trisNote": "Deterministic shoot-booking qualification for Cfilms. Stage lives in the external state store, never model memory. On completion the brief is pushed to the vault as a lead for the owner to quote. Brand via {{CREA_BUSINESS_NAME}}. Replies go out through CREA — WA Send.",
+    "trisAtoms": [
+      "load_stage",
+      "route_by_stage",
+      "capture_answer",
+      "send_reply",
+      "persist_state",
+      "emit_brief"
+    ]
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "workflowInputs",
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "from",
+              "type": "string"
+            },
+            {
+              "name": "text",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "id": "trigger",
+      "name": "When called",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        200,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ '{{STATE_STORE_URL}}?key=' + $json.from }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "load",
+      "name": "Load Stage",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        420,
+        300
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Deterministic Cfilms booking qualification. Capture the shoot brief.\nconst inc = $node['When called'].json;\nconst stored = items[0].json || {};\nconst stage = stored.stage || 'greeting';\nconst answers = (typeof stored.answers === 'object' && stored.answers) ? stored.answers : {};\nif (stage !== 'greeting') answers[stage] = inc.text;\nconst B = '{{CREA_BUSINESS_NAME}}';\nconst script = {\n  greeting:   { reply: `Hi! Thanks for reaching out to ${B}. What do you need \\u2014 listing photos, video, drone, a 3D tour, or a combo?`, next: 'service' },\n  service:    { reply: `Great. What\\u2019s the property type and rough size (beds / sqm), and the full address?`, next: 'property' },\n  property:   { reply: `Perfect. What date and time works for the shoot?`, next: 'scheduling' },\n  scheduling: { reply: `Thanks! Any access notes \\u2014 lockbox code, tenant/owner occupied, parking?`, next: 'access' },\n  access:     { reply: `All set \\u2014 ${B} will review and send your quote and confirmation shortly. Talk soon!`, next: 'close' },\n  close:      { reply: `You\\u2019re already in the queue \\u2014 ${B} will be in touch with your quote. If you need to change anything just reply here.`, next: 'close' }\n};\nconst step = script[stage] || script.greeting;\nconst justCompleted = (stage === 'access');\nreturn [{ json: { from: inc.from, reply: step.reply, nextStage: step.next, answers, justCompleted } }];"
+      },
+      "id": "route",
+      "name": "Route, Build Reply & Capture",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        640,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "creawasend",
+          "mode": "id",
+          "cachedResultName": "CREA — WA Send (WAHA atomic)"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "to": "={{ $json.from }}",
+            "text": "={{ $json.reply }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "to",
+              "displayName": "to",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "text",
+              "displayName": "text",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "id": "send",
+      "name": "Send Reply",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        880,
+        200
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{STATE_STORE_URL}}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ key: $json.from, stage: $json.nextStage, answers: $json.answers, lastReply: $json.reply }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "persist",
+      "name": "Persist Stage + Answers",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        880,
+        340
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $node['Route, Build Reply & Capture'].json.justCompleted }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "iscomplete",
+      "name": "Brief Complete?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{CREA_VAULT_API_URL}}/lead",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ source: 'whatsapp-booking', from: $node['Route, Build Reply & Capture'].json.from, brief: $node['Route, Build Reply & Capture'].json.answers, status: 'to-quote', capturedAt: new Date().toISOString() }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "emit",
+      "name": "Push Brief to Vault",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1320,
+        340
+      ],
+      "onError": "continueErrorOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "creawasend",
+          "mode": "id",
+          "cachedResultName": "CREA — WA Send (WAHA atomic)"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "to": "{{CREA_OWNER_WA}}",
+            "text": "={{ 'New booking brief from ' + $node['Route, Build Reply & Capture'].json.from + ':\\n' + JSON.stringify($node['Route, Build Reply & Capture'].json.answers, null, 2) }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "to",
+              "displayName": "to",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "text",
+              "displayName": "text",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "id": "tellowner",
+      "name": "Notify Owner",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1540,
+        340
+      ],
+      "onError": "continueErrorOutput"
+    }
+  ],
+  "connections": {
+    "When called": {
+      "main": [
+        [
+          {
+            "node": "Load Stage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Stage": {
+      "main": [
+        [
+          {
+            "node": "Route, Build Reply & Capture",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route, Build Reply & Capture": {
+      "main": [
+        [
+          {
+            "node": "Send Reply",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Persist Stage + Answers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Persist Stage + Answers": {
+      "main": [
+        [
+          {
+            "node": "Brief Complete?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Brief Complete?": {
+      "main": [
+        [
+          {
+            "node": "Push Brief to Vault",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Push Brief to Vault": {
+      "main": [
+        [
+          {
+            "node": "Notify Owner",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "{{GLOBAL_ERROR_HANDLER_ID}}"
+  },
+  "id": "creabookingagent"
+}

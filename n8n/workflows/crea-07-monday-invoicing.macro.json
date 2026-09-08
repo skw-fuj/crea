@@ -1,0 +1,229 @@
+{
+  "id": "creamondayinvoice",
+  "name": "CREA — Monday Invoicing (Macro)",
+  "meta": {
+    "trisFamily": "scheduled_report_reminder",
+    "trisMode": "macro",
+    "trisVertical": "crea",
+    "trisNote": "Monday 09:00. Finds completed jobs on the tracker not yet invoiced, drafts an invoice per job into the vault (DRAFT ONLY \\u2014 never sends), marks the row, and WhatsApps the owner a summary to review and send manually. No money moves here.",
+    "trisAtoms": [
+      "schedule",
+      "read_tracker",
+      "select_billable",
+      "draft_invoice",
+      "mark_invoiced",
+      "summarise_to_owner"
+    ]
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 * * 1"
+            }
+          ]
+        }
+      },
+      "id": "sched",
+      "name": "Monday 09:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        200,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "{{CREA_VAULT_API_URL}}/jobs?filter=billable",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "read",
+      "name": "Read Tracker",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        400,
+        300
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 2
+    },
+    {
+      "parameters": {
+        "jsCode": "const billable = items\n  .map(i => i.json)\n  .filter(r => String(r.status).toLowerCase() === 'completed' && String(r.invoiced).toLowerCase() !== 'true');\nif (!billable.length) return [{ json: { _none: true } }];\nreturn billable.map(r => ({ json: {\n  jobId: r.jobId,\n  client: r.client,\n  phone: r.phone,\n  address: r.address,\n  type: r.type,\n  datetime: r.datetime,\n  amount: parseFloat(r.amount || '0') || 0,\n  draftedAt: new Date().toISOString()\n} }));"
+      },
+      "id": "sel",
+      "name": "Select Billable",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        600,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{CREA_VAULT_API_URL}}/invoice-draft",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "draft",
+      "name": "Draft Invoice (vault)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        820,
+        240
+      ],
+      "onError": "continueErrorOutput",
+      "retryOnFail": true,
+      "maxTries": 2
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{CREA_VAULT_API_URL}}/job/invoiced",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ jobId: $node['Select Billable'].json.jobId, invoiced: 'draft' }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "mark",
+      "name": "Mark Invoiced=draft",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1040,
+        240
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 2
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = items.map(i => i.json).filter(r => r && r.jobId);\nif (!rows.length) return [{ json: { to: '{{CREA_OWNER_WA}}', text: 'Monday invoicing: nothing to bill this week.' } }];\nconst total = rows.reduce((s, r) => s + (r.amount || 0), 0);\nconst lines = rows.map(r => `\\u2022 ${r.client} \\u2014 ${r.type} \\u2014 $${r.amount}`).join('\\n');\nreturn [{ json: { to: '{{CREA_OWNER_WA}}', text: `${rows.length} invoice draft(s) ready ($${total} total):\\n${lines}\\nReview and send from the vault.` } }];"
+      },
+      "id": "sum",
+      "name": "Summarise",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "creawasend",
+          "mode": "id",
+          "cachedResultName": "CREA — WA Send (WAHA atomic)"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "to": "={{ $json.to }}",
+            "text": "={{ $json.text }}"
+          },
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "id": "tell",
+      "name": "Notify Owner",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1260,
+        400
+      ],
+      "onError": "continueErrorOutput"
+    }
+  ],
+  "connections": {
+    "Monday 09:00": {
+      "main": [
+        [
+          {
+            "node": "Read Tracker",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Tracker": {
+      "main": [
+        [
+          {
+            "node": "Select Billable",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Select Billable": {
+      "main": [
+        [
+          {
+            "node": "Draft Invoice (vault)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Summarise",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Draft Invoice (vault)": {
+      "main": [
+        [
+          {
+            "node": "Mark Invoiced=draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Summarise": {
+      "main": [
+        [
+          {
+            "node": "Notify Owner",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "{{GLOBAL_ERROR_HANDLER_ID}}"
+  }
+}

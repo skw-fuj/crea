@@ -51,6 +51,30 @@ fi
 
 say "3/5  fill + import workflows"
 ./fill-config.sh config.env workflows >/dev/null
+# bind any CREA credentials that already exist (created via HANDOVER step 3) to the auth
+# nodes, so there's nothing to click in the n8n UI afterwards
+DB="${N8N_DB:-$HOME/.n8n/database.sqlite}"
+if command -v sqlite3 >/dev/null && [ -f "$DB" ]; then
+  sqlite3 -json "$DB" "SELECT id,name FROM credentials_entity WHERE name LIKE 'CREA %'" > /tmp/crea-creds.json 2>/dev/null || echo '[]' > /tmp/crea-creds.json
+  python3 - workflows/_filled /tmp/crea-creds.json <<'PY' || warn "credential auto-bind skipped — select them in the n8n UI"
+import json,sys,glob,re
+d,cf=sys.argv[1],sys.argv[2]
+ids={c["name"]:c["id"] for c in json.load(open(cf))}
+if not ids: raise SystemExit(0)
+pick=lambda p,n: "CREA Higgsfield" if re.search("higgsfield",(p.get("url","")+n),re.I) else ("CREA OmniRoute" if p.get("genericAuthType")=="httpHeaderAuth" else "CREA Acuity")
+bound=0
+for f in glob.glob(d+"/*.json"):
+    o=json.load(open(f)); ch=False
+    for nd in o.get("nodes",[]):
+        p=nd.get("parameters",{})
+        if p.get("authentication")!="genericCredentialType": continue
+        nm=pick(p,nd["name"]); gt=p.get("genericAuthType")
+        if nm in ids: nd["credentials"]={gt:{"id":ids[nm],"name":nm}}; ch=True; bound+=1
+    if ch: json.dump(o,open(f,"w"),indent=2)
+print(f"  bound {bound} credential slot(s)")
+PY
+  rm -f /tmp/crea-creds.json
+fi
 before=$(n8n list:workflow 2>/dev/null | grep -c "^crea" || echo 0)
 n8n import:workflow --separate --input=workflows/_filled/ 2>&1 | grep -i "imported" | sed 's/^/  /'
 after=$(n8n list:workflow 2>/dev/null | grep -c "^crea" || echo 0)
@@ -70,12 +94,23 @@ else
 fi
 
 say "5/5  what's left (manual — needs your accounts)"
+have_creds=$(sqlite3 "$DB" "SELECT COUNT(*) FROM credentials_entity WHERE name LIKE 'CREA %'" 2>/dev/null || echo 0)
 cat <<EOF
   a. WhatsApp:  cd waha && cp .env.example .env  (set WAHA_API_KEY) && docker compose up -d
                 open http://localhost:3001  → Sessions → default → Start → scan the QR
-  b. Credentials in n8n ($N8N):  open a workflow, click the auth-typed nodes, select/create:
-                CREA OmniRoute (Header Auth)  ·  CREA Acuity (Basic Auth)  ·  CREA Higgsfield (Header Auth)
-                CREA Google (OAuth2) — only if you enable the Calendar/Drive nodes
+EOF
+if [ "${have_creds:-0}" -ge 3 ]; then
+  echo "  b. Credentials: bound automatically. (Only re-check if a workflow node shows a red 'credential' badge.)"
+else
+  cat <<EOF
+  b. Credentials — create them so a re-run of go-live.sh binds them:
+       n8n import:credentials --input=<json>  with:
+       {"name":"CREA OmniRoute","type":"httpHeaderAuth","data":{"name":"Authorization","value":"Bearer <key>"}}
+       {"name":"CREA Acuity","type":"httpBasicAuth","data":{"user":"<Acuity User ID>","password":"<Acuity API Key>"}}
+       {"name":"CREA Higgsfield","type":"httpHeaderAuth","data":{"name":"X-Api-Key","value":"<key>"}}   (optional)
+EOF
+fi
+cat <<EOF
   c. Acuity webhook → $N8N/webhook/crea-acuity   (event: appointment.scheduled)
   d. Fill real prices into knowledge/crea-knowledge.md when you have them (optional — works without)
 

@@ -170,7 +170,9 @@ conversation stays with the same handler until it closes.
 
 The AI assistant:
 - **answers only from `knowledge/crea-knowledge.md`** — served via `GET {CREA_VAULT_API_URL}/knowledge?q=`.
-  Fill every `[FILL]` in that file. Anything not in it → "someone will follow up" + owner ping.
+  It ships usable — coverage area, process, turnaround, FAQ are real; prices say "quote on
+  request" until you add numbers to one table. Anything the file does not cover → "someone
+  will follow up" + owner ping. `knowledge/EXAMPLE-filled.md` shows a completed one.
 - **quotes a price only if it's verbatim in the file** — otherwise "I'll get you an exact quote".
 - **checks Acuity availability read-only** (`GET {CREA_ACUITY_BASE}/availability` → busy blocks)
   and never confirms a slot — "that looks open, {owner} will confirm".

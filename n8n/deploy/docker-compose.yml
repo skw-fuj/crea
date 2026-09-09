@@ -33,9 +33,14 @@ services:
       - N8N_PERSONALIZATION_ENABLED=false
       - N8N_SECURE_COOKIE=false
       - N8N_RUNNERS_ENABLED=true
+      # optional editor login — set CREA_N8N_USER + CREA_N8N_PASSWORD in config.env
+      - N8N_BASIC_AUTH_ACTIVE=${CREA_N8N_AUTH_ACTIVE:-false}
+      - N8N_BASIC_AUTH_USER=${CREA_N8N_USER:-}
+      - N8N_BASIC_AUTH_PASSWORD=${CREA_N8N_PASSWORD:-}
     volumes:
       - n8n_data:/home/node/.n8n
       - ./_filled:/workflows:ro
+      - ./_export:/export
     depends_on:
       - vault-api
 

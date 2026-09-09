@@ -5,7 +5,8 @@ A standalone, client-owned automation pack: a WhatsApp AI booking assistant plus
 shoot-ops automations (Acuity intake, confirmations, chase, card pipeline, invoicing,
 morning briefing, listing leads).
 
-Install: INSTALL.md   (one runbook, ~1 hour, mostly account signups + downloads)
+Install:  INSTALL.md      (one-time setup, ~1 hour, mostly account signups + downloads)
+Operate:  OPERATIONS.md   (changes, updates, features, backup, recovery — day two onward)
 Deploy:  ./go-live.sh (Docker Compose — n8n + WAHA + vault-api, one command)
 
 What v2 is

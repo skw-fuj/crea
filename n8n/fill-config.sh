@@ -1,24 +1,33 @@
 #!/usr/bin/env bash
 # Substitute {{CREA_*}} + shared tokens from config.env into workflows/_filled/
-# Usage: ./fill-config.sh   (reads ./config.env)
+# Usage: ./fill-config.sh [config.env] [srcdir]
 set -euo pipefail
 cd "$(dirname "$0")"
 
 ENV_FILE="${1:-config.env}"
 [ -f "$ENV_FILE" ] || { echo "missing $ENV_FILE — copy config.example.env to config.env and fill it"; exit 1; }
 
-# SRC defaults to ./workflows; pass a dir as $2 for facet-template or other layouts
 SRC="${2:-workflows}"
 [ -d "$SRC" ] || SRC="."
 OUT="$SRC/_filled"
 mkdir -p "$OUT"
 
-# load KEY=VALUE lines (ignore comments/blanks)
+# load KEY=VALUE lines. Strip: CR, a trailing " # comment", surrounding whitespace,
+# and one layer of matching surrounding quotes. This is what keeps an inline comment in
+# config.env (e.g.  CREA_LLM_MODEL=gpt  # fast ) out of the workflow JSON.
 declare -a KEYS VALS
-while IFS='=' read -r k v; do
-  [[ "$k" =~ ^[A-Z] ]] || continue
-  KEYS+=("$k"); VALS+=("${v%%$'\r'}")
-done < <(grep -E '^[A-Z][A-Z0-9_]*=' "$ENV_FILE")
+while IFS= read -r line; do
+  [[ "$line" =~ ^([A-Z][A-Z0-9_]*)=(.*)$ ]] || continue
+  k="${BASH_REMATCH[1]}"; v="${BASH_REMATCH[2]}"
+  v="${v%$'\r'}"
+  v="${v%%$'\t'#*}"                     # strip  <tab>#...
+  v="$(printf '%s' "$v" | sed -E 's/[[:space:]]+#.*$//; s/^[[:space:]]+//; s/[[:space:]]+$//')"
+  case "$v" in
+    \"*\") v="${v#\"}"; v="${v%\"}" ;;
+    \'*\') v="${v#\'}"; v="${v%\'}" ;;
+  esac
+  KEYS+=("$k"); VALS+=("$v")
+done < "$ENV_FILE"
 
 missing=0
 for f in "$SRC"/*.json; do
@@ -28,7 +37,6 @@ for f in "$SRC"/*.json; do
   for i in "${!KEYS[@]}"; do
     content=${content//\{\{${KEYS[$i]}\}\}/${VALS[$i]}}
   done
-  # warn on any leftover tokens
   leftover=$(printf '%s' "$content" | grep -oE '\{\{[A-Z0-9_]+\}\}' | sort -u || true)
   if [ -n "$leftover" ]; then
     echo "!! $base still has unresolved tokens:"; echo "$leftover" | sed 's/^/     /'
@@ -39,7 +47,8 @@ done
 
 echo
 if [ "$missing" -eq 0 ]; then
-  echo "OK — filled workflows in $OUT/  (import order in SETUP.md)"
+  echo "OK — filled workflows in $OUT/"
 else
-  echo "Some tokens unresolved — fill them in $ENV_FILE and re-run. Files still written to $OUT/."
+  echo "Some tokens are unresolved — fill them in $ENV_FILE and re-run. Files still written to $OUT/."
+  exit 1
 fi

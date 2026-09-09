@@ -1,23 +1,30 @@
 CREA v2  —  n8n Hands Layer
 2.0.0 · 2026-09-09
 
-Standalone, client-owned automation pack: a WhatsApp AI booking assistant
-plus the shoot-ops automations (Acuity intake, confirmations, chase, card
-pipeline, invoicing, morning briefing, listing leads).
+A standalone, client-owned automation pack: a WhatsApp AI booking assistant plus the
+shoot-ops automations (Acuity intake, confirmations, chase, card pipeline, invoicing,
+morning briefing, listing leads).
+
+Install: INSTALL.md   (one runbook, ~1 hour, mostly account signups + downloads)
+Deploy:  ./go-live.sh (Docker Compose — n8n + WAHA + vault-api, one command)
 
 What v2 is
-- Runs entirely under the buyer's own accounts. No shared services, ids,
-  paths or labels — the conversation state store and alert sink are folded
-  into vault-api/server.js, and the pack ships its own error workflow
-  (crea-00-error-handler).
-- CREA_VAULT_DIR points storage at your Obsidian vault so Obsidian Sync
-  backs up every booking, lead and invoice. See DATA-AND-BACKUP.md.
-- One command: ./go-live.sh. Handover to someone else: HANDOVER.md.
+- Runs entirely under the buyer's own accounts and their own Mac. No shared services, no
+  public URL, no tunnel. WhatsApp reaches n8n on a private Docker network; Acuity is polled
+  outbound every 10 minutes.
+- The conversation state store and alert sink are folded into vault-api; the pack ships its
+  own error workflow (crea-00).
+- CREA_VAULT_DIR points booking storage at the buyer's Obsidian vault so Obsidian Sync backs
+  it up and puts it on their phone. See DATA-AND-BACKUP.md.
+- One command brings the whole stack up, imports every workflow, creates the credentials and
+  activates everything. The only manual step is scanning the WhatsApp QR once.
 
-Verified 2026-09-09 end to end on n8n 2.30.7 against a live model:
-answered from the knowledge file ($450 quoted verbatim, nothing invented),
-checked availability without confirming a slot, captured the shoot brief
-across turns, handed the owner a quote-ready enquiry, wrote the lead note;
-consecutive messages route correctly; LLM-down falls through to the
-deterministic 5-question qualifier; Acuity intake, card-pipeline human
-gate and the error handler all reach their designed end.
+Verified 2026-09-09 against a live model on n8n 2.30.7: answered from the knowledge file
+($450 quoted verbatim, nothing invented), checked availability without confirming a slot,
+captured the shoot brief across turns, handed the owner a quote-ready enquiry, wrote the lead
+note; multi-turn routing holds under fast consecutive messages; the Acuity poller ingests new
+bookings and dedupes on a watermark; LLM-down falls through to the deterministic qualifier;
+card-pipeline human gate and the error handler reach their designed end.
+
+Not verified on the build machine: the Docker Compose bring-up itself (the build Mac could
+not run Docker). `./go-live.sh --test` is the acceptance check and runs on the buyer's Mac.

@@ -4,93 +4,95 @@
   "meta": {
     "family": "reliable_ingress",
     "mode": "macro",
-    "note": "Acuity 'appointment.scheduled' webhook -> fetch full appointment -> job record in the vault (Google Calendar event optional) + a WhatsApp heads-up to the owner. Idempotent on Acuity appointment id.",
+    "note": "Polls the Acuity API every 10 min for new bookings (no webhook, no public URL needed) -> job record in the vault (Google Calendar event optional) + a WhatsApp heads-up to the owner. Idempotent: a watermark of processed Acuity appointment ids is kept in the vault state.",
     "steps": [
-      "receive_webhook",
-      "fetch_appointment",
-      "build_job",
+      "poll_schedule",
+      "load_watermark",
+      "fetch_upcoming_appointments",
+      "select_new",
       "persist_vault",
       "calendar_event",
-      "tracker_row",
-      "notify_owner"
+      "notify_owner",
+      "save_watermark"
     ]
   },
   "nodes": [
     {
       "parameters": {
-        "httpMethod": "POST",
-        "path": "crea-acuity",
-        "responseMode": "onReceived",
-        "options": {}
+        "rule": { "interval": [ { "field": "minutes", "minutesInterval": 10 } ] }
       },
-      "id": "wh",
-      "name": "Acuity Webhook",
-      "type": "n8n-nodes-base.webhook",
-      "typeVersion": 2,
-      "position": [
-        200,
-        300
-      ],
-      "webhookId": "crea-acuity"
+      "id": "poll",
+      "name": "Every 10 min",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [ 180, 240 ]
     },
     {
       "parameters": {
-        "jsCode": "const b = items[0].json.body || items[0].json;\nconst id = b.id || b.appointmentID || b['id'];\nconst action = b.action || 'scheduled';\nif (!id) throw new Error('Acuity webhook missing appointment id');\nif (action && !String(action).includes('scheduled')) return [];\nreturn [{ json: { apptId: String(id) } }];"
+        "httpMethod": "POST",
+        "path": "crea-acuity-poll",
+        "responseMode": "onReceived",
+        "options": {}
       },
-      "id": "parse",
-      "name": "Parse Webhook",
-      "type": "n8n-nodes-base.code",
+      "id": "runnow",
+      "name": "Run Now (local)",
+      "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
-      "position": [
-        400,
-        300
-      ],
-      "onError": "continueErrorOutput"
+      "position": [ 180, 380 ],
+      "webhookId": "crea-acuity-poll"
     },
     {
       "parameters": {
         "method": "GET",
-        "url": "={{ '{{CREA_ACUITY_BASE}}/appointments/' + $json.apptId }}",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpBasicAuth",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Accept",
-              "value": "application/json"
-            }
-          ]
-        },
-        "options": {
-          "timeout": 15000
-        }
+        "url": "={{ '{{STATE_STORE_URL}}?key=acuity-intake' }}",
+        "options": { "timeout": 10000 }
       },
-      "id": "fetch",
-      "name": "Get Appointment",
+      "id": "wm",
+      "name": "Load Watermark",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [
-        600,
-        300
-      ],
-      "onError": "continueErrorOutput",
-      "retryOnFail": true,
-      "maxTries": 3,
-      "waitBetweenTries": 2000
+      "position": [ 380, 300 ],
+      "onError": "continueRegularOutput"
     },
     {
       "parameters": {
-        "jsCode": "const a = items[0].json;\nconst forms = (a.forms || []).flatMap(f => (f.values || []));\nconst pick = (needle) => { const m = forms.find(v => (v.name||'').toLowerCase().includes(needle)); return m ? m.value : ''; };\nconst job = {\n  jobId: 'ACU-' + a.id,\n  client: [a.firstName, a.lastName].filter(Boolean).join(' '),\n  phone: (a.phone || '').replace(/[^0-9]/g,''),\n  email: a.email || '',\n  type: a.type || a.appointmentTypeID || '',\n  address: pick('address') || pick('property') || '',\n  datetime: a.datetime || '',\n  endTime: a.endTime || '',\n  duration: a.duration || '',\n  price: a.price || '',\n  notes: a.notes || pick('note') || '',\n  calendar: a.calendar || '',\n  createdAt: new Date().toISOString()\n};\nreturn [{ json: job }];"
+        "jsCode": "// build the Acuity query window: today .. +120d\nconst pad = n => String(n).padStart(2,'0');\nconst d = new Date();\nconst minDate = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;\nconst e = new Date(Date.now() + 120*864e5);\nconst maxDate = `${e.getFullYear()}-${pad(e.getMonth()+1)}-${pad(e.getDate())}`;\nconst wm = items[0].json || {};\nconst processed = Array.isArray(wm.processed) ? wm.processed.map(String) : [];\nreturn [{ json: { minDate, maxDate, processed } }];"
       },
-      "id": "build",
-      "name": "Build Job",
+      "id": "win",
+      "name": "Query Window",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [
-        800,
-        300
-      ]
+      "position": [ 560, 300 ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ '{{CREA_ACUITY_BASE}}/appointments?max=100&direction=ASC&minDate=' + $json.minDate + '&maxDate=' + $json.maxDate }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [ { "name": "Accept", "value": "application/json" } ] },
+        "options": { "timeout": 20000 }
+      },
+      "id": "fetch",
+      "name": "Fetch Upcoming",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [ 760, 300 ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "jsCode": "// keep only appointments we've never processed; build job objects\nconst win = $('Query Window').first().json;\nconst processed = new Set((win.processed || []).map(String));\nconst appts = $('Fetch Upcoming').all().map(i => i.json).flatMap(x => Array.isArray(x) ? x : [x]).filter(a => a && a.id);\nconst fresh = appts.filter(a => !processed.has(String(a.id)));\nconst allIds = [...processed, ...fresh.map(a => String(a.id))].slice(-800);\nif (!fresh.length) return [];\nreturn fresh.map(a => {\n  const forms = (a.forms || []).flatMap(f => (f.values || []));\n  const pick = needle => { const m = forms.find(v => (v.name||'').toLowerCase().includes(needle)); return m ? m.value : ''; };\n  return { json: {\n    jobId: 'ACU-' + a.id,\n    apptId: String(a.id),\n    client: [a.firstName, a.lastName].filter(Boolean).join(' '),\n    phone: (a.phone || '').replace(/[^0-9]/g,''),\n    email: a.email || '',\n    type: a.type || String(a.appointmentTypeID || ''),\n    address: pick('address') || pick('property') || a.location || '',\n    datetime: a.datetime || '',\n    endTime: a.endTime || '',\n    duration: a.duration || '',\n    price: a.price || '',\n    notes: a.notes || pick('note') || '',\n    calendar: a.calendar || '',\n    createdAt: new Date().toISOString(),\n    _allProcessedIds: allIds\n  } };\n});"
+      },
+      "id": "sel",
+      "name": "Select New",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [ 960, 300 ]
     },
     {
       "parameters": {
@@ -98,20 +100,15 @@
         "url": "{{CREA_VAULT_API_URL}}/job",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify($json) }}",
-        "options": {
-          "timeout": 10000
-        }
+        "jsonBody": "={{ JSON.stringify((({_allProcessedIds, ...rest}) => rest)($json)) }}",
+        "options": { "timeout": 10000 }
       },
       "id": "vault",
       "name": "Vault Job Record",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [
-        1000,
-        200
-      ],
-      "onError": "continueErrorOutput",
+      "position": [ 1160, 300 ],
+      "onError": "continueRegularOutput",
       "retryOnFail": true,
       "maxTries": 3,
       "waitBetweenTries": 2000
@@ -120,27 +117,20 @@
       "parameters": {
         "resource": "event",
         "operation": "create",
-        "calendar": {
-          "__rl": true,
-          "value": "{{CREA_GCAL_ID}}",
-          "mode": "id"
-        },
-        "start": "={{ $json.datetime }}",
-        "end": "={{ $json.endTime || $json.datetime }}",
+        "calendar": { "__rl": true, "value": "{{CREA_GCAL_ID}}", "mode": "id" },
+        "start": "={{ $node['Select New'].json.datetime }}",
+        "end": "={{ $node['Select New'].json.endTime || $node['Select New'].json.datetime }}",
         "additionalFields": {
-          "summary": "={{ 'Shoot: ' + $json.client + ' — ' + ($json.address || $json.type) }}",
-          "description": "={{ 'Job ' + $json.jobId + '\\nType: ' + $json.type + '\\nPhone: ' + $json.phone + '\\nNotes: ' + $json.notes }}",
-          "location": "={{ $json.address }}"
+          "summary": "={{ 'Shoot: ' + $node['Select New'].json.client + ' — ' + ($node['Select New'].json.address || $node['Select New'].json.type) }}",
+          "description": "={{ 'Job ' + $node['Select New'].json.jobId + '\\nType: ' + $node['Select New'].json.type + '\\nPhone: ' + $node['Select New'].json.phone + '\\nNotes: ' + $node['Select New'].json.notes }}",
+          "location": "={{ $node['Select New'].json.address }}"
         }
       },
       "id": "cal",
       "name": "Calendar Event",
       "type": "n8n-nodes-base.googleCalendar",
       "typeVersion": 1.3,
-      "position": [
-        1200,
-        200
-      ],
+      "position": [ 1360, 200 ],
       "onError": "continueRegularOutput",
       "retryOnFail": true,
       "maxTries": 2,
@@ -148,17 +138,12 @@
     },
     {
       "parameters": {
-        "workflowId": {
-          "__rl": true,
-          "value": "creawasend",
-          "mode": "id",
-          "cachedResultName": "CREA — WA Send (WAHA atomic)"
-        },
+        "workflowId": { "__rl": true, "value": "creawasend", "mode": "id", "cachedResultName": "CREA — WA Send (WAHA atomic)" },
         "workflowInputs": {
           "mappingMode": "defineBelow",
           "value": {
             "to": "{{CREA_OWNER_WA}}",
-            "text": "={{ 'New booking (Acuity): ' + $node['Build Job'].json.client + ' — ' + $node['Build Job'].json.type + ' @ ' + $node['Build Job'].json.datetime + '\\n' + ($node['Build Job'].json.address || '') }}"
+            "text": "={{ 'New booking (Acuity): ' + $node['Select New'].json.client + ' — ' + $node['Select New'].json.type + ' @ ' + $node['Select New'].json.datetime + '\\n' + ($node['Select New'].json.address || '') }}"
           },
           "matchingColumns": [],
           "schema": [],
@@ -171,72 +156,36 @@
       "name": "Notify Owner",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
-      "position": [
-        1420,
-        300
-      ],
-      "onError": "continueErrorOutput"
+      "position": [ 1360, 360 ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{STATE_STORE_URL}}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ key: 'acuity-intake', processed: $node['Select New'].json._allProcessedIds, lastPoll: new Date().toISOString() }) }}",
+        "options": { "timeout": 10000 }
+      },
+      "id": "save",
+      "name": "Save Watermark",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [ 1560, 360 ],
+      "onError": "continueRegularOutput"
     }
   ],
   "connections": {
-    "Acuity Webhook": {
-      "main": [
-        [
-          {
-            "node": "Parse Webhook",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Parse Webhook": {
-      "main": [
-        [
-          {
-            "node": "Get Appointment",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Get Appointment": {
-      "main": [
-        [
-          {
-            "node": "Build Job",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Build Job": {
-      "main": [
-        [
-          {
-            "node": "Vault Job Record",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Vault Job Record": {
-      "main": [
-        [
-          {
-            "node": "Notify Owner",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    }
+    "Every 10 min": { "main": [ [ { "node": "Load Watermark", "type": "main", "index": 0 } ] ] },
+    "Run Now (local)": { "main": [ [ { "node": "Load Watermark", "type": "main", "index": 0 } ] ] },
+    "Load Watermark": { "main": [ [ { "node": "Query Window", "type": "main", "index": 0 } ] ] },
+    "Query Window": { "main": [ [ { "node": "Fetch Upcoming", "type": "main", "index": 0 } ] ] },
+    "Fetch Upcoming": { "main": [ [ { "node": "Select New", "type": "main", "index": 0 } ] ] },
+    "Select New": { "main": [ [ { "node": "Vault Job Record", "type": "main", "index": 0 } ] ] },
+    "Vault Job Record": { "main": [ [ { "node": "Calendar Event", "type": "main", "index": 0 } ] ] },
+    "Calendar Event": { "main": [ [ { "node": "Notify Owner", "type": "main", "index": 0 } ] ] },
+    "Notify Owner": { "main": [ [ { "node": "Save Watermark", "type": "main", "index": 0 } ] ] }
   },
-  "settings": {
-    "executionOrder": "v1",
-    "errorWorkflow": "creaerrorhandler"
-  }
+  "settings": { "executionOrder": "v1", "errorWorkflow": "creaerrorhandler" }
 }

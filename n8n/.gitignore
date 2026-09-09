@@ -1,0 +1,12 @@
+# CREA v2 — never commit these
+config.env
+config.env.*
+deploy/.env
+deploy/.n8n-key
+deploy/_filled/
+deploy/whatsapp-qr.png
+workflows/_filled/
+vault-api/data/
+test/test.live.env
+*.log
+.DS_Store

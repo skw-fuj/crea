@@ -1,4 +1,4 @@
-# CREA v3 — the whole stack, one file.
+# CREA v3.1 — the whole stack, one file.
 #
 #   cd ..
 #   ./go-live.sh                  # fills config, brings this up, imports + activates everything
@@ -94,6 +94,10 @@ services:
       - ACUITY_APPT_TYPE_ID=${CREA_ACUITY_APPT_TYPE_ID:-}
       - LLM_CIRCUIT_FAILS=${LLM_CIRCUIT_FAILS:-4}
       - LLM_CIRCUIT_COOLDOWN_S=${LLM_CIRCUIT_COOLDOWN_S:-300}
+      # v3.1 booking: pricing engine + CREA-native note writing
+      - PRICING_MODE=${CREA_PRICING_MODE:-defer}
+      - PRICING_FILE=/knowledge/pricing.json
+      - VAULT_PROFILE=${CREA_VAULT_PROFILE:-crea}
     volumes:
       - ../vault-api:/app:ro
       - ../knowledge:/knowledge:ro

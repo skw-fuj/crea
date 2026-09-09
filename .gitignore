@@ -18,3 +18,4 @@ n8n/workflows/_filled/
 n8n/vault-api/data/
 n8n/test/test.live.env
 *.log
+n8n/knowledge/pricing.json

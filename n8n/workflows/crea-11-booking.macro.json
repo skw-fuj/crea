@@ -1,0 +1,704 @@
+{
+  "id": "creabooking",
+  "name": "CREA \u2014 Booking (hold + confirm)",
+  "meta": {
+    "family": "conversation_state_machine",
+    "mode": "macro",
+    "note": "The booking hold/confirm bridge. action=hold (from the AI assistant when a customer confirms the readback): writes a held booking to the vault and WhatsApps the owner a one-tap CONFIRM <ref> / DECLINE <ref>. action=confirm (owner replies CONFIRM <ref> \u2014 via crea-01, ./go-live.sh --confirm, or the CREA voice assistant): creates the real Acuity appointment (admin mode, only if Acuity is configured and the time is ISO 8601), writes the CREA-native job note, tells the customer they're confirmed. action=decline: releases the hold. Nothing here charges money; the real appointment is only created after the owner's explicit CONFIRM.",
+    "steps": [
+      "normalize",
+      "route",
+      "hold_or_confirm_or_decline",
+      "acuity_create",
+      "job_note",
+      "notify"
+    ]
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "workflowInputs",
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "action",
+              "type": "string"
+            },
+            {
+              "name": "from",
+              "type": "string"
+            },
+            {
+              "name": "brief",
+              "type": "string"
+            },
+            {
+              "name": "estimate",
+              "type": "string"
+            },
+            {
+              "name": "ref",
+              "type": "string"
+            },
+            {
+              "name": "datetime",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "id": "trigexec",
+      "name": "Called by assistant",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        180,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "crea-book-confirm",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "trigweb",
+      "name": "Owner confirm (webhook)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        180,
+        400
+      ],
+      "webhookId": "crea-book-confirm"
+    },
+    {
+      "parameters": {
+        "jsCode": "// unify the two entry points into { action, ref, from, brief, estimate, datetime }\nlet src = {};\ntry { src = $node['Called by assistant'].json || {}; } catch (e) {}\nlet hasExec = src && (src.action || src.brief || src.from);\nlet web = {};\ntry { web = ($node['Owner confirm (webhook)'].json && ($node['Owner confirm (webhook)'].json.body || $node['Owner confirm (webhook)'].json)) || {}; } catch (e) {}\nconst j = hasExec ? src : web;\nlet brief = j.brief;\nif (typeof brief === 'string') { try { brief = JSON.parse(brief); } catch (e) { brief = {}; } }\nbrief = brief && typeof brief === 'object' ? brief : {};\nconst action = String(j.action || (hasExec ? 'hold' : 'confirm')).toLowerCase();\nconst ref = String(j.ref || '').toUpperCase().replace(/[^A-Z0-9]/g, '') || null;\nreturn [{ json: {\n  action,\n  ref,\n  from: j.from || '',\n  brief,\n  estimate: j.estimate || '',\n  datetime: j.datetime || brief.preferred_datetime || ''\n} }];"
+      },
+      "id": "norm",
+      "name": "Normalize",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        400,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "hold",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "outputKey": "hold"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "confirm",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "outputKey": "confirm"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "decline",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "outputKey": "decline"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "none"
+        }
+      },
+      "id": "route",
+      "name": "By Action",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        600,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const j = $json;\nconst b = j.brief || {};\nconst ref = j.ref || (Math.random().toString(36).slice(2, 5).toUpperCase() + Math.floor(Math.random() * 90 + 10));\nconst bits = [];\nif (b.service) bits.push(b.service);\nconst pd = [b.property_type, b.bedrooms ? b.bedrooms + ' bed' : '', b.bathrooms ? b.bathrooms + ' bath' : '',\n  b.car_spaces ? b.car_spaces + ' car' : '', b.levels ? b.levels + ' level' : '',\n  (b.floor_sqm || b.land_sqm) ? ((b.floor_sqm || b.land_sqm) + ' m\u00b2') : '',\n  b.pool ? ('pool' + (b.pool_size ? ' ' + b.pool_size : '')) : ''].filter(Boolean).join(', ');\nif (pd) bits.push(pd);\nif (b.features) bits.push(b.features);\nconst summary = [\n  b.address ? ('\ud83d\udccd ' + b.address) : '',\n  j.datetime ? ('\ud83d\uddd3\ufe0f ' + j.datetime) : '',\n  bits.join(' \u00b7 '),\n  b.access ? ('\ud83d\udd11 ' + b.access) : ''\n].filter(Boolean).join('\\n');\nreturn [{ json: { ref, from: j.from, brief: b, estimate: j.estimate, datetime: j.datetime, summary } }];"
+      },
+      "id": "buildhold",
+      "name": "Build Hold",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        820,
+        140
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{CREA_VAULT_API_URL}}/booking/hold",
+        "options": {
+          "timeout": 15000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ ref: $json.ref, from: $json.from, brief: $json.brief, estimate: $json.estimate, datetime: $json.datetime, summary: $json.summary, status: 'held' }) }}"
+      },
+      "id": "writehold",
+      "name": "Write Hold",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1040,
+        140
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "creawasend",
+          "mode": "id",
+          "cachedResultName": "CREA \u2014 WA Send (WAHA atomic)"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "to": "={{ '{{CREA_OWNER_WA}}' }}",
+            "text": "={{ '\ud83d\uddd3\ufe0f Booking held \u2014 ref ' + $node['Build Hold'].json.ref + '\\n' + $node['Build Hold'].json.summary + ($node['Build Hold'].json.estimate ? ('\\n~ ' + $node['Build Hold'].json.estimate) : '') + '\\n\\nReply  CONFIRM ' + $node['Build Hold'].json.ref + '  to book it, or  DECLINE ' + $node['Build Hold'].json.ref + '.' }}"
+          },
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "id": "tellownerhold",
+      "name": "Tell Owner (hold)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1260,
+        140
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ '{{CREA_VAULT_API_URL}}/booking?ref=' + ($json.ref || '') }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "getbc",
+      "name": "Get Booking (confirm)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        820,
+        320
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const j = $json;                 // booking record from the vault GET\nconst b = (j && j.brief) || {};\nconst name = String(b.client || j.client || '').trim();\nconst parts = name ? name.split(/\\s+/) : [];\nconst firstName = parts.shift() || 'Booking';\nconst lastName = parts.join(' ') || '(via CREA)';\nlet dt = String(j.datetime || b.preferred_datetime || '').trim();\nconst iso = /^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2})?/.test(dt);\nif (iso && /T\\d{2}:\\d{2}$/.test(dt)) dt = dt + ':00';\nconst phone = String(b.phone || j.phone || j.from || '').replace(/[^0-9+]/g, '');\nreturn [{ json: {\n  ref: j.ref, from: j.from || b.phone || '',\n  appointmentTypeID: '{{CREA_ACUITY_APPT_TYPE_ID}}',\n  datetime: dt, datetimeOk: iso,\n  firstName, lastName, phone, email: b.email || j.email || '',\n  address: b.address || '', service: b.service || 'Photography',\n  price: (j.estimate || '').toString().replace(/[^0-9.]/g, ''),\n  notes: [b.features, b.access, b.notes].filter(Boolean).join(' | '),\n  acuityConfigured: '{{CREA_ACUITY_USER_ID}}'.length > 0\n} }];"
+      },
+      "id": "prep",
+      "name": "Prep Acuity",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "loose"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.acuityConfigured }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "leftValue": "={{ $json.datetimeOk }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "acuityif",
+      "name": "Acuity ready?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1260,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{CREA_ACUITY_BASE}}/appointments?admin=true",
+        "options": {
+          "timeout": 15000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ appointmentTypeID: Number($json.appointmentTypeID) || $json.appointmentTypeID, datetime: $json.datetime, firstName: $json.firstName, lastName: $json.lastName, email: $json.email || undefined, phone: $json.phone || undefined, notes: $json.notes || undefined }) }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        }
+      },
+      "id": "acucreate",
+      "name": "Create Acuity Appointment",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1480,
+        240
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const p = $node['Prep Acuity'].json;\nlet acuityOk = false;\ntry { const r = $node['Create Acuity Appointment'].json; acuityOk = !!(r && (r.id || r.datetime)); } catch (e) {}\nconst customerMsg = 'You\u2019re confirmed' + (p.datetime && p.datetimeOk ? ' for ' + p.datetime : '') +\n  (p.address ? ' \u2014 ' + p.address : '') + '. See you then! \u2014 {{CREA_OWNER_NAME}}';\nconst ownerMsg = 'Booked \u2713 ref ' + p.ref +\n  (p.acuityConfigured ? (acuityOk ? ' \u2014 added to Acuity' : ' \u2014 Acuity create FAILED, add it manually') : ' \u2014 add to Acuity manually');\nreturn [{ json: { ref: p.ref, from: p.from, acuityOk, customerMsg, ownerMsg,\n  job: { jobId: 'WA-' + p.ref, client: (p.firstName + ' ' + p.lastName).trim(), address: p.address,\n    datetime: p.datetime, type: p.service, price: p.price, phone: p.phone, email: p.email,\n    source: 'whatsapp', notes: p.notes, status: 'Booked' } } }];"
+      },
+      "id": "confres",
+      "name": "Confirm Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1700,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{CREA_VAULT_API_URL}}/booking/status",
+        "options": {
+          "timeout": 15000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ ref: $node['Prep Acuity'].json.ref, status: 'confirmed' }) }}"
+      },
+      "id": "markconf",
+      "name": "Mark Confirmed",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1920,
+        220
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{CREA_VAULT_API_URL}}/job",
+        "options": {
+          "timeout": 15000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($node['Confirm Result'].json.job) }}"
+      },
+      "id": "writejob",
+      "name": "Write Job",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1920,
+        340
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "creawasend",
+          "mode": "id",
+          "cachedResultName": "CREA \u2014 WA Send (WAHA atomic)"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "to": "={{ $node['Confirm Result'].json.from }}",
+            "text": "={{ $node['Confirm Result'].json.customerMsg }}"
+          },
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "id": "tellcust",
+      "name": "Tell Customer (confirm)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        2140,
+        260
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "creawasend",
+          "mode": "id",
+          "cachedResultName": "CREA \u2014 WA Send (WAHA atomic)"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "to": "={{ '{{CREA_OWNER_WA}}' }}",
+            "text": "={{ $node['Confirm Result'].json.ownerMsg }}"
+          },
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "id": "tellownerc",
+      "name": "Tell Owner (confirm)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        2140,
+        400
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ '{{CREA_VAULT_API_URL}}/booking?ref=' + ($json.ref || '') }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "getbd",
+      "name": "Get Booking (decline)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        820,
+        520
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{CREA_VAULT_API_URL}}/booking/status",
+        "options": {
+          "timeout": 15000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ ref: ($node['Normalize'].json.ref || ''), status: 'declined' }) }}"
+      },
+      "id": "markdec",
+      "name": "Mark Declined",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1040,
+        520
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "creawasend",
+          "mode": "id",
+          "cachedResultName": "CREA \u2014 WA Send (WAHA atomic)"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "to": "={{ $json.from || $node['Get Booking (decline)'].json.from }}",
+            "text": "={{ 'Thanks for the details \u2014 {{CREA_OWNER_NAME}} will be in touch shortly about timing.' }}"
+          },
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "id": "tellcustd",
+      "name": "Tell Customer (decline)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1260,
+        520
+      ],
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Called by assistant": {
+      "main": [
+        [
+          {
+            "node": "Normalize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Owner confirm (webhook)": {
+      "main": [
+        [
+          {
+            "node": "Normalize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize": {
+      "main": [
+        [
+          {
+            "node": "By Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "By Action": {
+      "main": [
+        [
+          {
+            "node": "Build Hold",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Get Booking (confirm)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Get Booking (decline)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Build Hold": {
+      "main": [
+        [
+          {
+            "node": "Write Hold",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write Hold": {
+      "main": [
+        [
+          {
+            "node": "Tell Owner (hold)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Booking (confirm)": {
+      "main": [
+        [
+          {
+            "node": "Prep Acuity",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prep Acuity": {
+      "main": [
+        [
+          {
+            "node": "Acuity ready?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Acuity ready?": {
+      "main": [
+        [
+          {
+            "node": "Create Acuity Appointment",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Confirm Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Acuity Appointment": {
+      "main": [
+        [
+          {
+            "node": "Confirm Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Confirm Result": {
+      "main": [
+        [
+          {
+            "node": "Mark Confirmed",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Write Job",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Tell Customer (confirm)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Tell Owner (confirm)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Booking (decline)": {
+      "main": [
+        [
+          {
+            "node": "Mark Declined",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Declined": {
+      "main": [
+        [
+          {
+            "node": "Tell Customer (decline)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "creaerrorhandler"
+  }
+}

@@ -1,8 +1,9 @@
-# CREA v3 — operating & maintaining it
+# CREA v3.1 — operating & maintaining it
 
 Everything you'll do after it's running: change prices and wording, add or drop features,
 take updates, keep it backed up, recover from trouble. `INSTALL.md` is the one-time setup;
-this is day two onward.
+this is day two onward. The booking behaviour (pricing mode, read-back, hold/confirm) is
+its own short doc: **`BOOKING.md`**.
 
 **Golden rules**
 1. **`knowledge/crea-knowledge.md` and `config.env` are the two files you edit.** Almost every
@@ -28,6 +29,19 @@ next customer message uses the new version. No restart, no `go-live.sh`.**
 | **Turnaround times** | Edit `## Turnaround`. |
 | **Booking process, deposit, payment terms** | Edit those sections. |
 | **FAQ answers** | Edit `## FAQ`. Add Q&A pairs freely — the assistant will use them. |
+| **Whether CREA quotes a price** | `CREA_PRICING_MODE` in `config.env` (`defer` / `packages` / `calculator`), then `./go-live.sh`. See `BOOKING.md`. |
+| **The estimate formula** | `knowledge/pricing.json` (copy `pricing.example.json`). Plain file, read live. Calculator mode only. |
+| **What the read-back includes** | `CREA_CONFIRM_MODE` (`booking_only` / `with_price`), then `./go-live.sh`. |
+| **Hold-for-your-OK vs hand-me-the-lead** | `CREA_AUTO_BOOK` (`hold` / `off`), then `./go-live.sh`. |
+| **The property questions CREA asks** | The system prompt in `crea-02b` → **Build Prompt** node (rule 4). |
+
+### Held bookings
+
+`./go-live.sh --bookings` lists any booking waiting on your CONFIRM.
+`./go-live.sh --confirm <ref>` books it in (creates the Acuity appointment, tells the
+customer). `./go-live.sh --decline <ref>` releases it. On a separate bot number you can also
+just reply `CONFIRM <ref>` in the chat CREA messages you from, or say it to the CREA voice
+assistant.
 | **Tone / what it should never say** | Add a short `## House rules` section in plain English (e.g. "Never promise a same-week slot." "Always mention the twilight add-on for waterfront listings."). The assistant follows the file. |
 
 The assistant **only** says what's in this file and never invents a price, a date, or a
@@ -183,7 +197,7 @@ Anthropic via a proxy, a local model via Ollama's OpenAI shim, OpenRouter.
   `config.example.env`, then in the editor delete the workflow (trash icon), then `./go-live.sh`.
 
 **Never remove:** `crea-00`, `crea-wa-send`, `crea-llm`, `crea-01`, `crea-02b`, `crea-02`,
-`crea-09`. That's the core loop, the model seam, and the safety net.
+`crea-09`, `crea-11`, `crea-12`. That's the core loop, the model seam, and the safety net.
 
 ---
 

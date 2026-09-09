@@ -1,5 +1,5 @@
 {
-  "name": "CREA — WhatsApp Inbound Capture (Macro)",
+  "name": "CREA \u2014 WhatsApp Inbound Capture (Macro)",
   "meta": {
     "family": "reliable_ingress",
     "mode": "macro",
@@ -65,7 +65,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const inc = $node['Parse & Guard'].json;\nconst stored = items[0].json || {};\nconst now = Date.now();\n// dedupe: same message id, or the exact same text within 10s (engines without stable ids)\nif (inc.msgId && stored.lastMsgId === inc.msgId) return [];\nif (inc.text && stored.lastText === inc.text && stored.lastInboundAt && (now - Date.parse(stored.lastInboundAt) < 10000)) return [];\n\n// rate limit: keep the last 60s of inbound times for this sender\nconst RATE = Math.max(3, parseInt('{{CREA_RATE_LIMIT_PER_MIN}}', 10) || 12);\nconst msgTimes = (Array.isArray(stored.msgTimes) ? stored.msgTimes : []).filter(x => now - x < 60000).concat(now).slice(-40);\nconst flooding = msgTimes.length > RATE;\n\n// once a lead is handed to the owner, the bot stays quiet on that chat for 3 days\nconst daysSinceHuman = stored.humanSince ? (now - Date.parse(stored.humanSince)) / 864e5 : 999;\nconst humanHandled = stored.mode === 'human' && daysSinceHuman < 3;\n\nconst activeBooking = !humanHandled && !flooding && ((!!stored.stage && stored.stage !== 'close') || stored.mode === 'ai' || (Array.isArray(stored.transcript) && stored.transcript.length > 0 && !stored.booking_ready));\nconst t = (inc.text || '').toLowerCase();\nconst bookingWords = ['shoot','photo','photos','video','listing','book','booking','quote','drone','tour','floor plan','floorplan','twilight'];\nconst looksBooking = !humanHandled && !flooding && bookingWords.some(w => t.includes(w));\nlet target = (activeBooking || looksBooking) ? 'booking' : 'other';\n// if the assistant is mid-reply on this chat, don't start a second turn — queue the text\nconst busy = stored.assistantBusyUntil && now < Date.parse(stored.assistantBusyUntil);\nif (target === 'booking' && busy) target = 'queue';\n\n// on a shared number the owner already sees every incoming message. Config flag wins; else\n// infer from the account the message was sent to vs CREA_OWNER_WA.\nconst flag = String('{{CREA_SHARED_NUMBER}}').toLowerCase();\nconst ownerDigits = String('{{CREA_OWNER_WA}}').replace(/[^0-9]/g, '');\nconst toAcct = String(inc.toAcct || '');\nconst inferShared = !!(toAcct && ownerDigits && (toAcct === ownerDigits || toAcct.endsWith(ownerDigits) || ownerDigits.endsWith(toAcct)));\nconst sharedNumber = flag === 'true' ? true : (flag === 'false' ? false : inferShared);\n\nconst queuedText = String(stored.queuedText || '');\nreturn [{ json: { ...inc, target, flooding, msgTimes, humanHandled, queuedText, relayToOwner: !sharedNumber && !flooding, priorStage: stored.stage || null } }];"
+        "jsCode": "const inc = $node['Parse & Guard'].json;\nconst stored = items[0].json || {};\nconst now = Date.now();\n// dedupe: same message id, or the exact same text within 10s (engines without stable ids)\nif (inc.msgId && stored.lastMsgId === inc.msgId) return [];\nif (inc.text && stored.lastText === inc.text && stored.lastInboundAt && (now - Date.parse(stored.lastInboundAt) < 10000)) return [];\n\n// rate limit: keep the last 60s of inbound times for this sender\nconst RATE = Math.max(3, parseInt('{{CREA_RATE_LIMIT_PER_MIN}}', 10) || 12);\nconst msgTimes = (Array.isArray(stored.msgTimes) ? stored.msgTimes : []).filter(x => now - x < 60000).concat(now).slice(-40);\nconst flooding = msgTimes.length > RATE;\n\n// once a lead is handed to the owner, the bot stays quiet on that chat for 3 days\nconst daysSinceHuman = stored.humanSince ? (now - Date.parse(stored.humanSince)) / 864e5 : 999;\nconst humanHandled = stored.mode === 'human' && daysSinceHuman < 3;\n\nconst activeBooking = !humanHandled && !flooding && ((!!stored.stage && stored.stage !== 'close') || stored.mode === 'ai' || (Array.isArray(stored.transcript) && stored.transcript.length > 0 && !stored.booking_ready));\nconst t = (inc.text || '').toLowerCase();\nconst bookingWords = ['shoot','photo','photos','video','listing','book','booking','quote','drone','tour','floor plan','floorplan','twilight'];\nconst looksBooking = !humanHandled && !flooding && bookingWords.some(w => t.includes(w));\nlet target = (activeBooking || looksBooking) ? 'booking' : 'other';\n// if the assistant is mid-reply on this chat, don't start a second turn \u2014 queue the text\nconst busy = stored.assistantBusyUntil && now < Date.parse(stored.assistantBusyUntil);\nif (target === 'booking' && busy) target = 'queue';\n\n// on a shared number the owner already sees every incoming message. Config flag wins; else\n// infer from the account the message was sent to vs CREA_OWNER_WA.\nconst flag = String('{{CREA_SHARED_NUMBER}}').toLowerCase();\nconst ownerDigits = String('{{CREA_OWNER_WA}}').replace(/[^0-9]/g, '');\nconst toAcct = String(inc.toAcct || '');\nconst inferShared = !!(toAcct && ownerDigits && (toAcct === ownerDigits || toAcct.endsWith(ownerDigits) || ownerDigits.endsWith(toAcct)));\nconst sharedNumber = flag === 'true' ? true : (flag === 'false' ? false : inferShared);\n\nconst queuedText = String(stored.queuedText || '');\n// owner one-tap booking control (separate-number setups only; on a shared number the\n// owner's own messages are fromMe and never reach here \u2014 they use ./go-live.sh --confirm or voice)\nconst cm = String(inc.text || '').trim().match(/^(confirm|decline)\\s+([a-z0-9]{3,7})$/i);\nconst isOwner = !!(ownerDigits && inc.from === ownerDigits);\nconst bookAction = (cm && isOwner) ? cm[1].toLowerCase() : '';\nconst bookRef = (cm && isOwner) ? cm[2].toUpperCase() : '';\nconst finalTarget = bookAction ? 'ownerbook' : target;\nreturn [{ json: { ...inc, target: finalTarget, bookAction, bookRef, flooding, msgTimes, humanHandled, queuedText, relayToOwner: !sharedNumber && !flooding && !bookAction, priorStage: stored.stage || null } }];"
       },
       "id": "classify",
       "name": "Classify & Dedupe",
@@ -115,6 +115,24 @@
                 ]
               },
               "outputKey": "queue"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.target }}",
+                    "rightValue": "ownerbook",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "outputKey": "ownerbook"
             }
           ]
         },
@@ -241,13 +259,13 @@
           "__rl": true,
           "value": "creawasend",
           "mode": "id",
-          "cachedResultName": "CREA — WA Send (WAHA atomic)"
+          "cachedResultName": "CREA \u2014 WA Send (WAHA atomic)"
         },
         "workflowInputs": {
           "mappingMode": "defineBelow",
           "value": {
             "to": "{{CREA_OWNER_WA}}",
-            "text": "={{ ($node['Classify & Dedupe'].json.humanHandled ? '↪ follow-up from ' : 'WhatsApp from ') + $node['Parse & Guard'].json.from + ': ' + ($node['Parse & Guard'].json.text || ('(' + $node['Parse & Guard'].json.type + ')')) }}"
+            "text": "={{ ($node['Classify & Dedupe'].json.humanHandled ? '\u21aa follow-up from ' : 'WhatsApp from ') + $node['Parse & Guard'].json.from + ': ' + ($node['Parse & Guard'].json.text || ('(' + $node['Parse & Guard'].json.type + ')')) }}"
           },
           "matchingColumns": [],
           "schema": [
@@ -364,7 +382,7 @@
         "url": "{{CREA_ALERT_WEBHOOK_URL}}",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ workflow: 'crea-01', node: 'rate-limit', severity: 'warn', message: 'message flood from ' + $node['Classify & Dedupe'].json.from + ' — replies paused for that sender for ~1 min' }) }}",
+        "jsonBody": "={{ JSON.stringify({ workflow: 'crea-01', node: 'rate-limit', severity: 'warn', message: 'message flood from ' + $node['Classify & Dedupe'].json.from + ' \u2014 replies paused for that sender for ~1 min' }) }}",
         "options": {
           "timeout": 10000
         }
@@ -399,6 +417,37 @@
         -40
       ],
       "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "creabooking",
+          "mode": "id",
+          "cachedResultName": "CREA \u2014 Booking (hold + confirm)"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "action": "={{ $node['Classify & Dedupe'].json.bookAction }}",
+            "ref": "={{ $node['Classify & Dedupe'].json.bookRef }}"
+          },
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "id": "tobookconfirm",
+      "name": "-> Booking Confirm",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1220,
+        40
+      ],
+      "onError": "continueErrorOutput"
     }
   ],
   "connections": {
@@ -479,6 +528,18 @@
         [
           {
             "node": "Queue Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "-> Booking Confirm",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Mark Seen",
             "type": "main",
             "index": 0
           }

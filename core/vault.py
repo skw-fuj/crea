@@ -21,7 +21,7 @@ from pathlib import Path
 # progression, so a status can never silently move backwards unnoticed.
 STATUSES = ["Booked", "Shot", "Editing", "Invoiced", "Paid"]
 
-FOLDERS = ["Jobs", "Clients", "Bookings", "Logs"]
+FOLDERS = ["Jobs", "Clients", "Leads", "Bookings", "Logs"]
 
 
 def slugify(s: str) -> str:
@@ -117,6 +117,7 @@ class Vault:
 
     def log(self, kind: str, message: str) -> None:
         p = self.root / "Logs" / f"{date.today():%Y-%m}.md"
+        p.parent.mkdir(parents=True, exist_ok=True)
         stamp = _now().strftime("%Y-%m-%d %H:%M")
         with p.open("a") as fh:
             fh.write(f"- `{stamp}` **{kind}** — {message}\n")
@@ -126,6 +127,23 @@ class Vault:
     def jobs(self) -> list[dict]:
         out = []
         for p in sorted((self.root / "Jobs").glob("*.md")):
+            fm = _read_frontmatter(p)
+            if fm:
+                fm["_path"] = str(p)
+                fm["_title"] = p.stem
+                out.append(fm)
+        return out
+
+    def leads(self) -> list[dict]:
+        """Enquiries the WhatsApp assistant captured but that aren't booked yet.
+
+        Written by the automations pack into Leads/ in CREA's own frontmatter.
+        """
+        out = []
+        d = self.root / "Leads"
+        if not d.exists():
+            return out
+        for p in sorted(d.glob("*.md")):
             fm = _read_frontmatter(p)
             if fm:
                 fm["_path"] = str(p)
@@ -218,8 +236,9 @@ class Vault:
         )[:8]
         if upcoming:
             for j in upcoming:
-                d = datetime.fromisoformat(j["shoot_at"])
-                lines.append(f"- `{d:%a %d %b %-I:%M%p}` [[{j['_title']}]] — "
+                d = parse_dt(j.get("shoot_at"))
+                when = f"{d:%a %d %b %-I:%M%p}" if d else (j.get("shoot_at") or "time TBC")
+                lines.append(f"- `{when}` [[{j['_title']}]] — "
                              f"[[{j['client']}]], {j['address']}")
         else:
             lines.append("_nothing booked_")
@@ -267,6 +286,16 @@ def _read_frontmatter(p: Path) -> dict | None:
         except Exception:
             d[k.strip()] = v
     return d
+
+
+def parse_dt(value) -> datetime | None:
+    """ISO8601 -> datetime, or None. Job notes written by the automations pack
+    may carry a non-ISO time the customer typed ("Saturday 10am"); the voice
+    side must degrade, not crash, on those."""
+    try:
+        return datetime.fromisoformat(str(value))
+    except (TypeError, ValueError):
+        return None
 
 
 def _checklist(status: str) -> str:

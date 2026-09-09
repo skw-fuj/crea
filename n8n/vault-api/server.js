@@ -18,7 +18,7 @@ const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 
-const VERSION = '3.0.0';
+const VERSION = '3.1.0';
 const PORT = Number(process.env.VAULT_API_PORT || 5692);
 const VAULT_DIR = path.resolve(process.env.VAULT_DIR || path.join(__dirname, 'data'));
 const KB_FILE = path.resolve(process.env.KNOWLEDGE_FILE || path.join(__dirname, '..', 'knowledge', 'crea-knowledge.md'));
@@ -27,8 +27,15 @@ const ACUITY = { uid: process.env.ACUITY_USER_ID, key: process.env.ACUITY_API_KE
 const CIRCUIT_FAILS = Number(process.env.LLM_CIRCUIT_FAILS || 4);
 const CIRCUIT_COOLDOWN = Number(process.env.LLM_CIRCUIT_COOLDOWN_S || 300) * 1000;
 const MAX_BODY = 256 * 1024;
+const PRICING_FILE = path.resolve(process.env.PRICING_FILE || path.join(path.dirname(KB_FILE), 'pricing.json'));
+const PRICING_MODE = (process.env.PRICING_MODE || 'defer').toLowerCase();   // defer | packages | calculator
+// 'crea' also writes CREA-native Job/Client/Lead notes (frontmatter) so Connell's voice
+// assistant reads the same memory. Any other value = the plain n8n notes only.
+const VAULT_PROFILE = (process.env.VAULT_PROFILE || 'plain').toLowerCase();
 
-for (const d of ['jobs', 'leads', 'inbox', 'shoots', 'invoices', 'pending', 'state', 'alerts', 'health'])
+for (const d of ['jobs', 'leads', 'inbox', 'shoots', 'invoices', 'pending', 'state', 'alerts', 'health', 'bookings'])
+  fs.mkdirSync(path.join(VAULT_DIR, d), { recursive: true });
+if (VAULT_PROFILE === 'crea') for (const d of ['Jobs', 'Clients', 'Leads', 'Bookings', 'Logs'])
   fs.mkdirSync(path.join(VAULT_DIR, d), { recursive: true });
 
 // never let a bad request take the process down — Docker would restart it, but a log is better
@@ -58,6 +65,105 @@ function mergeNote(dir, id, patch) {
   const base = path.join(VAULT_DIR, dir, jslug(id) + '.json');
   return writeNote(dir, id, { ...(readJSON(base) || {}), ...patch, updatedAt: new Date().toISOString() });
 }
+
+// ---------- CREA-native notes (so Connell's voice assistant reads the same memory) ----------
+// matches core/vault.py _frontmatter: plain scalars unquoted, lists as JSON, None skipped.
+function creaFrontmatter(obj) {
+  const lines = ['---'];
+  for (const [k, v] of Object.entries(obj)) {
+    if (v == null || v === '') continue;
+    lines.push(Array.isArray(v) ? `${k}: ${JSON.stringify(v)}` : `${k}: ${v}`);
+  }
+  lines.push('---');
+  return lines.join('\n');
+}
+function creaWriteJob(job) {
+  // job: { jobId, client, address, datetime, type, price, phone, email, notes, status }
+  const when = job.datetime ? new Date(job.datetime) : null;
+  const dstr = when && !isNaN(when) ? when.toISOString().slice(0, 10) : todayStr();
+  const title = ((job.address || '').split(',')[0] || job.type || 'Shoot') + ' — ' + (job.type || 'shoot');
+  const fm = {
+    type: 'job', client: job.client || 'Unknown', address: job.address || '',
+    shoot_at: job.datetime || '', status: job.status || 'Booked', job_type: job.type || 'Photography',
+    fee: job.price ? Number(String(job.price).replace(/[^0-9.]/g, '')) || null : null,
+    source: job.source || 'whatsapp', external_id: job.jobId || '', tags: ['cfilms/job'],
+  };
+  const body = [creaFrontmatter(fm), `# ${title}`, '',
+    `**Client** [[${fm.client}]] · **When** ${job.datetime || 'TBC'} · **Status** \`${fm.status}\``,
+    `**Where** ${fm.address}`, fm.fee ? `**Fee** $${fm.fee}` : '', '',
+    '## Notes', job.notes || '_none yet_', '', '---', 'Part of [[CREA]]'].filter(x => x !== '').join('\n');
+  fs.writeFileSync(path.join(VAULT_DIR, 'Jobs', jslug(dstr + ' ' + title) + '.md'), body + '\n');
+  if (job.client) {
+    const cf = { type: 'client', phone: job.phone || '', email: job.email || '', tags: ['cfilms/client'] };
+    fs.writeFileSync(path.join(VAULT_DIR, 'Clients', jslug(job.client) + '.md'),
+      [creaFrontmatter(cf), `# ${job.client}`, '', `**Phone** ${cf.phone}  ·  **Email** ${cf.email}`, '', '---', 'Client of [[CREA]]'].join('\n') + '\n');
+  }
+}
+function creaWriteLead(lead) {
+  // lead: { from, brief:{...}, status, estimate, capturedAt }
+  const b = lead.brief || {};
+  const fm = {
+    type: 'lead', status: lead.status || 'new', phone: lead.from || '',
+    service: b.service || '', address: b.address || '', preferred: b.preferred_date || b.preferred_datetime || '',
+    estimate: lead.estimate || '', captured: lead.capturedAt || new Date().toISOString(), tags: ['cfilms/lead'],
+  };
+  const rows = Object.entries(b).map(([k, v]) => `- **${k}**: ${typeof v === 'object' ? JSON.stringify(v) : v}`).join('\n');
+  const body = [creaFrontmatter(fm), `# Lead — ${b.address || lead.from}`, '',
+    `**From** ${lead.from}  ·  **Status** \`${fm.status}\`${lead.estimate ? '  ·  **Est.** ' + lead.estimate : ''}`, '',
+    '## Brief', rows || '_none_', '', '---', 'For [[CREA]]'].join('\n');
+  fs.writeFileSync(path.join(VAULT_DIR, 'Leads', jslug((lead.from || 'lead') + '-' + (b.address || Date.now())) + '.md'), body + '\n');
+}
+
+// ---------- pricing ----------
+function pricingRules() { return readJSON(PRICING_FILE); }
+function estimate(brief) {
+  const mode = PRICING_MODE;
+  if (mode === 'defer') return { mode: 'defer' };
+  const b = brief || {};
+  const service = String(b.service || '').toLowerCase();
+  const beds = Number(b.bedrooms || b.beds || 0) || 0;
+  const baths = Number(b.bathrooms || 0) || 0;
+  const levels = Number(b.levels || 1) || 1;
+  const sqm = Number(b.floor_sqm || b.land_sqm || b.sqm || 0) || 0;
+  const feat = String(b.features || '').toLowerCase();
+  const pool = b.pool === true || /pool/.test(feat) || String(b.pool || '').toLowerCase() === 'yes';
+
+  if (mode === 'packages') {
+    // rough range off the knowledge-file package prices + a size band
+    const kbP = kbFacts().prices.map(p => Number(p.replace(/[^0-9.]/g, ''))).filter(Boolean).sort((a, b2) => a - b2);
+    if (!kbP.length) return { mode: 'packages', note: 'no prices in the knowledge file yet' };
+    const base = service.includes('video') ? (kbP[Math.min(1, kbP.length - 1)] || kbP[0]) : kbP[0];
+    const sizeMul = sqm > 400 || beds >= 5 ? 1.4 : (sqm > 250 || beds >= 4 ? 1.2 : 1);
+    const mid = Math.round(base * sizeMul);
+    return { mode: 'packages', low: Math.round(mid * 0.85 / 5) * 5, high: Math.round(mid * 1.2 / 5) * 5,
+      basis: `${service || 'shoot'}, ${beds || '?'} bed, ${sqm ? sqm + ' m²' : 'size tbc'}` };
+  }
+
+  // calculator: deterministic from pricing.json
+  const R = pricingRules();
+  if (!R) return { mode: 'calculator', note: 'pricing.json not set up — falls back to defer' };
+  const pack = (R.packages || []).find(p => service.includes(String(p.match || p.name).toLowerCase())) || (R.packages || [])[0];
+  if (!pack) return { mode: 'calculator', note: 'no matching package in pricing.json' };
+  const bd = [];
+  let total = Number(pack.base || 0); bd.push([pack.name || 'base', total]);
+  const add = (label, n) => { if (n) { total += n; bd.push([label, n]); } };
+  add('per bedroom', beds * Number(R.per_bedroom || 0));
+  add('per bathroom', baths * Number(R.per_bathroom || 0));
+  add(`${levels} level(s)`, (levels - 1) * Number(R.per_extra_level || 0));
+  if (sqm && R.per_sqm) add(`${sqm} m²`, Math.round(sqm * Number(R.per_sqm)));
+  else if (sqm && Array.isArray(R.size_tiers)) { const t = R.size_tiers.find(t => sqm <= (t.max_sqm || 1e9)); if (t) add(`size tier (${t.max_sqm ? '≤' + t.max_sqm : 'large'} m²)`, Number(t.add || 0)); }
+  if (pool) add('pool', Number(R.pool_addon || 0));
+  for (const [k, v] of Object.entries(R.feature_addons || {})) if (feat.includes(k.toLowerCase())) add(k, Number(v));
+  for (const [k, v] of Object.entries(R.service_addons || {})) if (service.includes(k.toLowerCase())) add(k, Number(v));
+  total = Math.max(total, Number(R.minimum || 0));
+  const round = R.round_to || 5;
+  total = Math.round(total / round) * round;
+  return { mode: 'calculator', price: total, currency: R.currency || 'AUD', breakdown: bd,
+    disclaimer: R.disclaimer || 'Estimate — final quote confirmed by the owner.' };
+}
+
+// ---------- bookings (hold + owner confirm) ----------
+function bookingRef() { return Math.random().toString(36).slice(2, 5).toUpperCase() + Math.floor(Math.random() * 90 + 10); }
 
 // ---------- conversation state ----------
 const STATE_DIR = path.join(VAULT_DIR, 'state');
@@ -298,13 +404,31 @@ const server = http.createServer(async (req, res) => {
 
     if (p === '/alert' && isPost) return sendJSON(res, 200, recordAlert(data));
 
-    if (p === '/job' && isPost) return sendJSON(res, 200, writeNote('jobs', data.jobId || 'job-' + Date.now(), data));
+    if (p === '/job' && isPost) { if (VAULT_PROFILE === 'crea') try { creaWriteJob(data); } catch (e) { logInternal('creaWriteJob', e); }
+      return sendJSON(res, 200, writeNote('jobs', data.jobId || 'job-' + Date.now(), data)); }
     if (p === '/job/invoiced' && isPost) return sendJSON(res, 200, mergeNote('jobs', data.jobId, { invoiced: data.invoiced || 'draft' }));
     if (p === '/jobs') return sendJSON(res, 200, jobs(q.get('filter')));
 
-    if (p === '/lead' && isPost) return sendJSON(res, 200, writeNote('leads', (data.from || 'lead') + '-' + Date.now(), data));
+    if (p === '/lead' && isPost) { if (VAULT_PROFILE === 'crea') try { creaWriteLead(data); } catch (e) { logInternal('creaWriteLead', e); }
+      return sendJSON(res, 200, writeNote('leads', (data.from || 'lead') + '-' + Date.now(), data)); }
     if (p === '/leads' && isPost) return sendJSON(res, 200, writeNote('leads', (data.key || 'lead') + '-' + Date.now(), data));
     if (p === '/leads') return sendJSON(res, 200, listJSON('leads'));
+
+    // pricing estimate
+    if (p === '/estimate' && isPost) return sendJSON(res, 200, estimate(data.brief || data));
+    if (p === '/pricing-mode') return sendJSON(res, 200, { mode: PRICING_MODE, rules_present: !!pricingRules() });
+
+    // bookings: hold -> owner confirms -> real appointment
+    if (p === '/booking/hold' && isPost) {
+      const ref = data.ref || bookingRef();
+      return sendJSON(res, 200, writeNote('bookings', ref, { ...data, ref, status: 'held', heldAt: new Date().toISOString() }));
+    }
+    if (p === '/booking' && !isPost) {
+      const r = readJSON(path.join(VAULT_DIR, 'bookings', jslug(q.get('ref')) + '.json'));
+      return sendJSON(res, r ? 200 : 404, r || { error: 'no such booking ref' });
+    }
+    if (p === '/booking/pending') return sendJSON(res, 200, listJSON('bookings').filter(b => b.status === 'held'));
+    if (p === '/booking/status' && isPost) return sendJSON(res, 200, mergeNote('bookings', data.ref, { status: data.status || 'confirmed', decidedAt: new Date().toISOString() }));
 
     if (p === '/inbox' && isPost) return sendJSON(res, 200, writeNote('inbox', (data.from || 'msg') + '-' + Date.now(), data));
 

@@ -1,25 +1,28 @@
-CREA v3  —  n8n Hands Layer
-3.0.0 · 2026-09-09
+CREA v3.1  —  n8n Hands Layer
+3.1.0 · 2026-09-10
 
 A standalone, self-healing WhatsApp AI booking assistant + shoot-ops automations, run by
 the owner on their own Mac and their own accounts.
 
 Install:  INSTALL.md         (one-time setup, ~1 hour — mostly account signups + downloads)
 Operate:  OPERATIONS.md      (changes, updates, features, backup, recovery — day two onward)
+Booking:  BOOKING.md         (the two decisions: how it prices, what it reads back)
 Resilience & security:  COUNTERMEASURES.md
 Deploy:   ./go-live.sh       (Docker Compose — n8n + WAHA + vault-api, one command)
 
-What v3 adds over v2
-- Resilience: an LLM circuit breaker + optional second endpoint (crea-llm), Docker
-  healthchecks, and a host watchdog (launchd) that restarts a down/wedged container,
-  re-links a dropped WhatsApp session, prunes disk, and pages the owner for what it can't fix.
-- Security: an injection-hardened prompt PLUS a deterministic reply guard on every message
-  (strips an invented price, softens a booking confirmation, blocks prompt leakage);
-  per-sender rate limiting; a blocklist; input size caps; group/status/media filtered out.
-- Observability: a health endpoint + dashboard (localhost:5692/status.html), a richer
-  ./go-live.sh --status, a daily self-check that pages on real problems (deduped), a
-  system-health line in the morning briefing, deduped incident logging.
-- Backup/restore built in: ./go-live.sh --backup / --restore / --export.
+What v3.1 adds over v3 (purely additive — every new switch defaults to v3 behaviour)
+- Property intake: the assistant asks bedrooms, bathrooms, car spaces, levels, land/floor m²,
+  pool (+ size), and free-text features (verandas, backyards, storage, extra kitchens…),
+  one question at a time, before it reads the booking back.
+- Pricing, 3 modes (CREA_PRICING_MODE): defer (never quotes — default), packages (rough range),
+  calculator (a real figure from knowledge/pricing.json).
+- Readback + confirm: the assistant summarises the booking and only proceeds on an explicit
+  "yes". CREA_CONFIRM_MODE = booking_only (details only) or with_price (includes the estimate).
+- Hold → owner confirms → Acuity (CREA_AUTO_BOOK=hold): a confirmed booking is HELD and the
+  owner gets a one-tap CONFIRM <ref> / DECLINE <ref>. On CONFIRM, n8n creates the real Acuity
+  appointment and tells the customer. CREA_AUTO_BOOK=off keeps the v3 "hand the owner a lead".
+- CREA voice ("JARVIS") compatibility: job/lead/client notes are also written in CREA's native
+  frontmatter into Jobs/ Clients/ Leads/, so "hey CREA, when's my next booking / confirm
+  booking 4A2 / message the Smith client" all work off the same memory.
 
-14 workflows. Verified end to end against a live model on n8n 2.30.7 — see TEST-REPORT.md,
-including the failure and attack cases.
+16 workflows. Verified end to end against a live model on n8n 2.30.7 — see TEST-REPORT.md.

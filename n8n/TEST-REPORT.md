@@ -1,10 +1,31 @@
-# CREA v3 — verification
+# CREA v3.1 — verification
 
 Every workflow was driven end to end through a real n8n **2.30.7** instance against
 `vault-api/server.js`, with WAHA and the LLM endpoint stood in by `test/mock-services.js`
 (which captures every outbound call and the incidents CREA logs). `test/demo.sh` reproduces
 the run, including the failure and attack cases; `DEMO_LLM_URL`/`DEMO_LLM_KEY` point the
 assistant at a real model.
+
+## v3.1 booking flow (2026-09-10) — verified against a live model (Groq `openai/gpt-oss-120b`)
+
+`test/demo.sh` with `DEMO_LLM_URL` set, `CREA_PRICING_MODE=calculator`,
+`CREA_CONFIRM_MODE=with_price`, `CREA_AUTO_BOOK=hold`. A full booking conversation:
+
+| Step | Result |
+|---|---|
+| **Property intake** | assistant asked bedrooms, bathrooms, levels, garage, pool — one question per reply; brief accumulated all fields including an ISO `preferred_datetime` |
+| **Read-back with price** | *"a video shoot for a 4-bedroom house at 40 Awaba St, Saturday 10am… is that all correct?"* including the calculator estimate |
+| **Customer confirms** | *"yes that's all correct"* → `confirmed` set deterministically (not left to the model) → *"Connell will lock in the final details shortly"* |
+| **Hold → owner** | booking held with ref, owner WhatsApped the brief + estimate + `CONFIRM <ref>` / `DECLINE <ref>` |
+| **Owner CONFIRM** | replying `CONFIRM <ref>` → real Acuity appointment created (`POST /appointments?admin=true`), booking marked `confirmed`, customer told *"you're confirmed for …"*, **CREA-native job note written** |
+| **Transient model glitch** | a turn where the model returned prose instead of JSON → assistant asked the next required field deterministically, kept the brief, did **not** drop to the fixed qualifier |
+| **Circuit open** | with the LLM circuit forced open, a booking message fell through to `crea-02` (fixed 5-question qualifier) as designed |
+| **CREA voice ↔ n8n** | `core.connectors.n8n` → `crea-book-confirm` webhook → Acuity + job note (round trip); `crea-message-client` webhook → one WhatsApp to a customer (round trip) |
+| **Vault-format compatibility** | `tests/test_n8n_vault_compat.py` — runs the real vault-api, POSTs the payloads `crea-11`/`crea-02b` send, reads every note back through `core.vault` (`jobs()`, `clients()`, `leads()`), estimate `$980`, `render_dashboard()` does not crash |
+
+Every v3 countermeasure below was re-run in the same pass and still passes. **0 workflow
+errors** across the run. New switches all default to v3 behaviour (`defer` / `booking_only` /
+`off`) — with the defaults the assistant behaves exactly as v3 plus the property questions.
 
 ## v3 countermeasures (2026-09-09) — verified against a live model
 

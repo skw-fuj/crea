@@ -26,5 +26,8 @@ note; multi-turn routing holds under fast consecutive messages; the Acuity polle
 bookings and dedupes on a watermark; LLM-down falls through to the deterministic qualifier;
 card-pipeline human gate and the error handler reach their designed end.
 
-Not verified on the build machine: the Docker Compose bring-up itself (the build Mac could
-not run Docker). `./go-live.sh --test` is the acceptance check and runs on the buyer's Mac.
+Not fully verified on the build machine: the Docker Compose bring-up itself (the build Mac
+ran out of disk). Confirmed: `docker compose config` resolves; go-live.sh's preflight, key
+generation, workflow fill and clean-env steps all run; the WhatsApp-gateway image is
+amd64-only on its default tag, so go-live.sh now picks `devlikeapro/waha:noweb` /
+`:noweb-arm` by CPU architecture. `./go-live.sh --test` is the on-site acceptance check.

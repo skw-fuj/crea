@@ -1,9 +1,15 @@
-# CREA v3 — n8n Hands Layer
+# CREA v3.1 — n8n Hands Layer
 
 A **WhatsApp AI booking assistant** plus the shoot-ops automations (Acuity intake, shoot
 confirmations, chase, card pipeline, invoicing, morning briefing, listing leads).
 
 Self-healing and injection-hardened. Verified end-to-end against a live model on n8n 2.30.7, including the failure and attack cases — see `TEST-REPORT.md` and `COUNTERMEASURES.md`.
+
+**v3.1 adds** progressive property intake, optional price estimates (`defer` / `packages` /
+`calculator`), a details read-back the customer must say yes to, and an optional
+hold → one-tap `CONFIRM` → real Acuity appointment flow. Job/lead/client notes are also
+written in the CREA voice assistant's own format, so "hey CREA, when's my next booking"
+works off the same memory. Every switch defaults to v3 behaviour — see **`BOOKING.md`**.
 
 ---
 
@@ -20,8 +26,10 @@ cp config.example.env config.env      # fill: CREA_OWNER_WA, CREA_WAHA_API_KEY, 
 ./go-live.sh --test                    # prove it's live
 ```
 
-Then put your prices in `knowledge/crea-knowledge.md`. Everything after that — changing
-prices/wording, config, updates, new features, backups, recovery — is in **`OPERATIONS.md`**.
+Then put your prices in `knowledge/crea-knowledge.md`, and read **`BOOKING.md`** for the
+two booking decisions (does CREA quote a price; what happens when a customer confirms).
+Everything after that — changing prices/wording, config, updates, new features, backups,
+recovery — is in **`OPERATIONS.md`**.
 
 **Handing it to someone:** give them `HANDOVER.md` + `INSTALL.md`.
 
@@ -38,7 +46,11 @@ flowchart LR
   n02b --> vapi[(vault-api container<br/>knowledge · availability<br/>state · jobs · leads)]
   n02b --> llm[LLM<br/>OpenAI-compatible]
   n02b --> wsend[crea-wa-send] --> waha
-  n02b -->|quote-ready| owner([Owner WhatsApp])
+  n02b -->|customer confirms| n11[crea-11<br/>hold + confirm]
+  n11 -->|owner replies CONFIRM| acuity
+  n11 --> vapi
+  n02b -->|quote-ready / stuck| owner([Owner WhatsApp])
+  voice([CREA voice]) -->|confirm booking / message client| n11 & n12[crea-12<br/>message a client] --> wsend
   acuity([Acuity]) -->|polled every 10 min| n03[crea-03 intake] --> vapi
   sched{{schedules}} --> n04[confirmations] & n05[chase] & n07[invoicing] & n08[briefing] & n10[leads]
   n04 & n05 & n07 & n08 & n10 --> wsend
@@ -59,7 +71,8 @@ stores everything as plain files under `CREA_VAULT_DIR`.
 |---|---|
 | `INSTALL.md` | the runbook — start here |
 | `deploy/docker-compose.yml` · `go-live.sh` · `fill-config.sh` | the whole stack + one-command deploy |
-| `workflows/` | 14 workflows (table in `SETUP.md`) |
+| `workflows/` | 16 workflows (table in `SETUP.md`) |
+| `BOOKING.md` | the two booking decisions + `knowledge/pricing.json` |
 | `vault-api/server.js` | memory + job store + knowledge + availability + conversation state — one zero-dep service |
 | `knowledge/crea-knowledge.md` | what the assistant answers from. Ships usable; put prices in one table. `EXAMPLE-filled.md` shows a done one. |
 | `config.example.env` | every account/key, each marked REQUIRED/optional |

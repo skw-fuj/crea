@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
-from ..vault import Job, STATUSES, slugify
+from ..vault import Job, STATUSES, slugify, parse_dt
 from .base import Skill, SkillResult
 from ..clock import now as _now
 
@@ -22,6 +22,15 @@ class AcuitySync(Skill):
     phrases = ("sync acuity", "check for new bookings")
 
     def run(self, **kw) -> SkillResult:
+        # When the automations pack owns booking intake (crea-03 polls Acuity and
+        # writes the job notes itself, in this vault), this skill would only
+        # duplicate that work. It stays available for a manual re-sync but the
+        # scheduler leaves it alone.
+        if self.cfg.get("bookings.source", "acuity") == "n8n" and not kw.get("force"):
+            return SkillResult(
+                ok=True, changed=False,
+                summary="The automations pack syncs Acuity now. Say 'sync acuity force' to run anyway.")
+
         blocked = self.guard()
         if blocked:
             return blocked
@@ -135,6 +144,151 @@ class AdvanceJob(Skill):
         self.vault.log("advance", f"{target['_title']}: {cur} -> {new}")
         return SkillResult(ok=True, changed=True,
                            summary=f"{target['_title']} moved from {cur} to {new}.")
+
+
+class NextBooking(Skill):
+    """'Hey CREA, when's my next booking?' — reads the vault the automations fill.
+
+    Every WhatsApp booking the assistant takes lands in Jobs/ as a `status:
+    Booked` note (in CREA's own frontmatter), so this needs no connector.
+    """
+
+    name = "next-booking"
+    title = "When's my next booking"
+    phrases = ("when's my next booking", "when is my next booking", "next booking",
+               "any bookings today", "bookings today", "what's on tomorrow",
+               "what's on today", "anything booked")
+
+    def run(self, when: str = "", **kw) -> SkillResult:
+        text = (when or kw.get("query") or "").lower()
+        today = _now(self.cfg).date()
+
+        booked = []
+        for j in self.vault.jobs():
+            if str(j.get("status", "")).lower() != "booked":
+                continue
+            d = parse_dt(j.get("shoot_at"))
+            booked.append((d, j))
+        # a booking with no parseable time still counts, sorted last
+        booked.sort(key=lambda t: (t[0] is None, t[0] or _now(self.cfg)))
+
+        def line(d, j):
+            when_s = f"{d:%a %-d %b, %-I:%M%p}" if d else "time to be confirmed"
+            fee = f", ${j['fee']:,.0f}" if j.get("fee") else ""
+            return f"{j.get('client', 'a client')} at {j.get('address', '?')} — {when_s}{fee}"
+
+        if "today" in text:
+            rows = [(d, j) for d, j in booked if d and d.date() == today]
+            return SkillResult(ok=True, changed=False,
+                               summary=("Today: " + "; ".join(line(d, j) for d, j in rows))
+                               if rows else "Nothing booked today.")
+        if "tomorrow" in text:
+            tm = today + timedelta(days=1)
+            rows = [(d, j) for d, j in booked if d and d.date() == tm]
+            return SkillResult(ok=True, changed=False,
+                               summary=("Tomorrow: " + "; ".join(line(d, j) for d, j in rows))
+                               if rows else "Nothing booked tomorrow.")
+
+        upcoming = [(d, j) for d, j in booked if d is None or d.date() >= today]
+        if not upcoming:
+            return SkillResult(ok=True, changed=False, summary="No bookings on the calendar.")
+        d, j = upcoming[0]
+        return SkillResult(ok=True, changed=False,
+                           summary="Your next booking is " + line(d, j) + ".",
+                           count=len(upcoming))
+
+
+class ConfirmBooking(Skill):
+    """'Hey CREA, confirm booking 4A2' — approves a booking the WhatsApp
+    assistant is holding. The automations pack then creates the real Acuity
+    appointment and tells the customer.
+    """
+
+    name = "confirm-booking"
+    title = "Confirm a held booking"
+    needs = ("n8n",)
+    phrases = ("confirm booking", "confirm the booking", "book that in",
+               "decline booking", "reject booking")
+
+    def run(self, ref: str = "", action: str = "", **kw) -> SkillResult:
+        blocked = self.guard()
+        if blocked:
+            return blocked
+        spoken = (kw.get("query") or "").lower()
+        act = (action or ("decline" if ("decline" in spoken or "reject" in spoken) else "confirm"))
+        ref = ref or kw.get("id") or ""
+        if not ref:
+            import re
+            m = re.search(r"\b([A-Za-z0-9]{3,7})\b", spoken.replace("booking", "").replace("confirm", ""))
+            ref = m.group(1) if m else ""
+        if not ref:
+            return SkillResult(ok=False, changed=False,
+                               summary="Which booking? Say the reference, e.g. 'confirm booking 4A2'.")
+        try:
+            self.conn["n8n"].book_confirm(ref, action=act)
+        except Exception as e:
+            return SkillResult(ok=False, changed=False,
+                               summary=f"Couldn't reach the automations to {act} {ref}: {e}")
+        self.vault.log("booking", f"{act} {ref.upper()} (voice)")
+        return SkillResult(
+            ok=True, changed=True,
+            summary=(f"Booking {ref.upper()} confirmed — the customer's being told and it's "
+                     f"going into Acuity." if act == "confirm"
+                     else f"Booking {ref.upper()} declined — the customer will hear from you about timing."))
+
+
+class MessageClient(Skill):
+    """'Hey CREA, message the Smith client that I'm running 15 minutes late' —
+    one WhatsApp to a customer, sent through the automations pack's sender.
+    Owner-initiated only; CREA never messages a customer on its own.
+    """
+
+    name = "message-client"
+    title = "Send a client a WhatsApp"
+    needs = ("n8n",)
+    phrases = ("message the", "text the", "send a message to", "let the client know",
+               "tell the client", "message my")
+
+    def run(self, client: str = "", text: str = "", **kw) -> SkillResult:
+        blocked = self.guard()
+        if blocked:
+            return blocked
+        client = client or kw.get("who") or ""
+        text = text or kw.get("message") or ""
+        if not (client and text):
+            return SkillResult(ok=False, changed=False,
+                               summary="Say who and what — 'message the Smith client that we're on for Saturday'.")
+
+        needle = client.lower()
+        matches = [j for j in self.vault.jobs()
+                   if needle in str(j.get("client", "")).lower()
+                   or needle in j.get("_title", "").lower()]
+        phone = ""
+        name = client
+        for j in matches:
+            c = self.vault.client(j.get("client", "")) or {}
+            if c.get("phone"):
+                phone, name = c["phone"], j.get("client", client)
+                break
+        if not phone:
+            c = self.vault.client(client) or {}
+            phone = c.get("phone", "")
+        if not phone:
+            return SkillResult(ok=False, changed=False,
+                               summary=f"No phone number on file for '{client}'.")
+
+        if self.cfg.get("safety.confirm_before_send", True):
+            if not self.confirm(f'Send to {name} ({phone}): "{text}"?'):
+                return SkillResult(ok=False, changed=False,
+                                   summary=f'Not sent. Draft to {name}: "{text}"',
+                                   draft=text, to=phone)
+        try:
+            self.conn["n8n"].message_client(phone=phone, text=text)
+        except Exception as e:
+            return SkillResult(ok=False, changed=False,
+                               summary=f"Couldn't send that: {e}")
+        self.vault.log("message", f"to {name} ({phone}): {text[:80]}")
+        return SkillResult(ok=True, changed=True, summary=f"Sent to {name}.")
 
 
 class BookingAgent(Skill):

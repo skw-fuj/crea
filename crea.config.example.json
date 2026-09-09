@@ -92,8 +92,17 @@
       }
     }
   },
+  "bookings": {
+    "source": "n8n",
+    "_source_note": "'n8n' = the automations pack takes bookings and writes job notes into this vault; CREA reads them and confirms/declines held bookings by voice. 'acuity' = CREA polls Acuity directly (acuity-sync on schedule)."
+  },
   "integrations": {
     "_status_note": "'ready' is computed live from real credentials, never stored. crea status tells the truth.",
+    "n8n": {
+      "enabled": true,
+      "base_url": "http://localhost:5678",
+      "_note": "The crea's automations pack. Voice skills confirm-booking and message-client call its local webhooks."
+    },
     "acuity": {
       "enabled": true,
       "user_id_env": "ACUITY_USER_ID",

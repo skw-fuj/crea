@@ -102,7 +102,9 @@ Every capability and the specific mechanism behind it.
 | Wake word "Hey CREA" | On-device listener | Microphone + permission | $0 | Running |
 | Answers only your voice *(optional)* | On-device voice print | A minute to enrol | $0 | Built |
 | Choice of 26 voices | Built in, on-device | Nothing | $0 | Running |
-| Booking sync | n8n Acuity trigger | Acuity account + API key | Included | Built · needs login |
+| WhatsApp booking assistant | n8n pack (`~/crea/n8n`) | Docker + a WhatsApp number + Groq key | Free | Built · `./go-live.sh` |
+| Booking sync into the vault | the n8n pack writes job/lead notes directly | as above | Free | Built |
+| Confirm / message a client by voice | CREA → n8n webhooks | the pack running | Free | Built |
 | Calendar | n8n Google Calendar | Google authorisation | Free | Built · needs login |
 | Call transcription | CLI — whisper.cpp | Recording app + consent flow | $0 | Built · needs login |
 | WhatsApp messages | CLI — `hermes whatsapp` | QR scan from your phone | Free | Built · needs login |
@@ -139,10 +141,13 @@ connected at all.**
 | *"remind me about Mum's birthday on the 3rd"* | Files it and brings it up on the day |
 | *"who haven't I spoken to?"* | Flags clients going quiet, most valuable first |
 | *"what should I focus on?"* | The morning board — three things, most urgent first |
+| *"when's my next booking?"* · *"any bookings today?"* | Reads it straight out of the vault the WhatsApp assistant fills |
+| *"confirm booking 4A2"* | Books a held WhatsApp booking in — creates the Acuity appointment, tells the customer |
+| *"message the Smith client I'm running late"* | One WhatsApp to that customer, through the automations |
 | *"cut me some Reels"* | Vertical drafts out of the footage, with captions |
 | *"take notes on this lecture"* | Slides in, revision notes out |
+| — happens on its own | The WhatsApp assistant takes bookings, asks about the property, and writes them into the vault |
 | — happens on its own | Pulls new Acuity bookings into your calendar and tracker |
-| — happens on its own | Reads booking requests out of WhatsApp |
 | — happens on its own | Confirms tomorrow's shoots and chases replies |
 | — happens on its own | Uploads shoots to Drive, hands to Higgsfield, tells your editor |
 | — happens on its own | Flags agents worth approaching from your listing scrapes |
@@ -151,9 +156,17 @@ connected at all.**
 checked every fifteen minutes, WhatsApp every ten, confirmations at 5pm,
 invoicing on Monday mornings, the board at 6.
 
-`crea skills` lists all nineteen and what each is waiting on. A skill that needs
+`crea skills` lists them all and what each is waiting on. A skill that needs
 an account you haven't connected says exactly that, and exactly how to connect
 it. It never half-runs and never reports success for doing nothing.
+
+**The WhatsApp booking assistant is its own pack** (`~/crea/n8n`, in Docker). It
+runs the customer conversation — property questions, a read-back, an optional
+one-tap `CONFIRM` before anything hits your calendar — and writes every job,
+client and lead into this same vault. CREA reads them. Set it up with
+`cd ~/crea/n8n && ./go-live.sh`; the two behaviour choices are in `n8n/BOOKING.md`.
+`bookings.source` in `crea.config.json` is `n8n` once it's running, which turns
+off CREA's own Acuity poll so the two don't double up.
 
 ---
 

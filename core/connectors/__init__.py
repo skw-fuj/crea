@@ -17,6 +17,7 @@ from .google import Google
 from .whatsapp import WhatsApp
 from .higgsfield import Higgsfield
 from .apify import Apify
+from .n8n import N8N
 
 REGISTRY = {
     "acuity": Acuity,
@@ -24,6 +25,7 @@ REGISTRY = {
     "whatsapp": WhatsApp,
     "higgsfield": Higgsfield,
     "apify": Apify,
+    "n8n": N8N,
 }
 
 

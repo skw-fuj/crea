@@ -1,0 +1,46 @@
+{
+  "_README": "Copy to pricing.json and put YOUR numbers in. Only used when CREA_PRICING_MODE=calculator. The assistant quotes an estimate from these rules; you still confirm the final quote. Delete any line you don't use.",
+
+  "currency": "AUD",
+  "minimum": 250,
+  "round_to": 5,
+  "disclaimer": "This is an estimate from the property details given — Connell confirms the final quote.",
+
+  "packages": [
+    { "name": "Photos",          "match": "photo",  "base": 295 },
+    { "name": "Video",           "match": "video",  "base": 450 },
+    { "name": "Photos + Video",  "match": "combo",  "base": 650 }
+  ],
+
+  "per_bedroom": 15,
+  "per_bathroom": 10,
+  "per_extra_level": 60,
+
+  "_size": "Use EITHER per_sqm (a flat rate per m² of floor area) OR size_tiers (a flat add-on per band). Not both.",
+  "per_sqm": 0,
+  "size_tiers": [
+    { "max_sqm": 200, "add": 0 },
+    { "max_sqm": 350, "add": 80 },
+    { "max_sqm": 600, "add": 180 },
+    { "add": 320 }
+  ],
+
+  "pool_addon": 60,
+
+  "_feature_addons": "matched against the free-text 'features' the assistant collected (deck, granny flat, tennis court, acreage, water views, studio...)",
+  "feature_addons": {
+    "granny flat": 90,
+    "tennis":      90,
+    "acreage":     150,
+    "water view":  60
+  },
+
+  "_service_addons": "matched against the service the customer asked for",
+  "service_addons": {
+    "drone":      150,
+    "twilight":   180,
+    "floor plan": 90,
+    "3d tour":    280,
+    "rush":       120
+  }
+}

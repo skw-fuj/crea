@@ -47,7 +47,8 @@ n8n import:workflow --separate --input=workflows/_filled/ >/dev/null 2>&1
 
 echo "3/4  activate + restart n8n…"
 activate creawasend creallm creawainbound creabookingagent creaaiassistant creaacuityintake creacardpipeline creaselfcheck \
-         creashootconfirm creachasenoreply creamondayinvoice creamorningbrief creaerrorhandler creaapifyleads
+         creashootconfirm creachasenoreply creamondayinvoice creamorningbrief creaerrorhandler creaapifyleads \
+         creabooking creamsgclient
 restart
 
 echo "4/4  drive traffic…"
@@ -58,9 +59,28 @@ msg(){ curl -s -o /dev/null -X POST $N8N/webhook/crea-wa-inbound -H 'content-typ
 # --- AI assistant (default handler): real model, ~25s/turn ---
 # State starts empty: the mock's /vault/state returns {} for a new key, so no seed needed.
 A=61400556677
-msg ai1 $A "Hi, how much is a listing video for a 3 bedroom house?";      sleep 25
-msg ai2 $A "Its 40 Awaba St, Mosman. Are you free this Saturday?";        sleep 25
-msg ai3 $A "Lets do it. Owner home, side gate open.";                     sleep 25
+if [ -n "${DEMO_LLM_URL:-}" ]; then
+  # v3.1 full booking: property intake -> readback (with_price) -> confirm -> hold -> owner CONFIRM -> Acuity
+  msg ai1 $A "Hi, I'd like a listing video for a house";                            sleep 30
+  msg ai2 $A "4 bedrooms, 2 bathrooms, double garage, 2 levels, about 380 sqm, has a pool"; sleep 30
+  msg ai3 $A "40 Awaba St, Mosman";                                                 sleep 30
+  msg ai4 $A "Saturday 2026-09-19 at 10am";                                         sleep 30
+  msg ai5 $A "Yes that's all correct";                                              sleep 32
+  # owner one-tap CONFIRM: pull the ref from the hold message CREA sent the owner (61400000999)
+  REF=$(curl -s localhost:5699/_calls | python3 -c "
+import sys,json,re
+for c in json.load(sys.stdin):
+    if c['path']=='/waha/api/sendText' and '61400000999' in c['payload'].get('chatId',''):
+        m=re.search(r'ref ([A-Z0-9]{3,7})', c['payload'].get('text',''))
+        if m: print(m.group(1))
+" | tail -1)
+  echo "     held booking ref: ${REF:-<none captured>}"
+  [ -n "$REF" ] && { msg cfm 61400000999 "CONFIRM $REF"; sleep 15; }
+else
+  msg ai1 $A "Hi, how much is a listing video for a 3 bedroom house?";      sleep 25
+  msg ai2 $A "Its 40 Awaba St, Mosman. Are you free this Saturday?";        sleep 25
+  msg ai3 $A "Lets do it. Owner home, side gate open.";                     sleep 25
+fi
 
 # --- deterministic qualifier (set CREA_BOOKING_WORKFLOW_ID=creabookingagent to route here) ---
 F=61400778899
@@ -94,6 +114,29 @@ print('   injection: reply to customer was '+('CLEAN ✓' if sent and not bad el
 "
 curl -s localhost:5699/_alerts | python3 -c "import sys,json;a=[x for x in json.load(sys.stdin) if x.get('node')=='guard-reply'];print('   guard: incident logged ✓' if a else '   guard: no incident logged')"
 
+if [ -n "${DEMO_LLM_URL:-}" ]; then
+  echo
+  echo "6/6  v3.1 booking flow…"
+  curl -s localhost:5699/_calls | python3 -c "
+import sys,json,re
+calls=json.load(sys.stdin)
+cust=[c['payload'].get('text','') for c in calls if c['path']=='/waha/api/sendText' and '61400556677' in c['payload'].get('chatId','')]
+owner=[c['payload'].get('text','') for c in calls if c['path']=='/waha/api/sendText' and '61400000999' in c['payload'].get('chatId','')]
+asked=' '.join(cust).lower()
+props=[w for w in ('bedroom','bathroom','level','square met','pool','garage','car') if w in asked]
+print('   property intake: asked about', ', '.join(props) or 'NOTHING ✗')
+print('   readback w/ price: '+('yes ✓' if any('\$' in t and ('correct' in t.lower() or 'confirm' in t.lower() or 'all right' in t.lower()) for t in cust) else 'not seen (check transcript)'))
+hold=[c for c in calls if c['path']=='/vault/booking/hold']
+print('   booking held: '+('yes ✓ ('+str(len(hold))+' call)' if hold else 'NO ✗'))
+print('   owner got CONFIRM prompt: '+('yes ✓' if any('confirm' in t.lower() and 'ref' in t.lower() for t in owner) else 'NO ✗'))
+acu=[c for c in calls if c['path'].startswith('/acuity/appointments') and c.get('method')=='POST']
+print('   Acuity appointment created: '+('yes ✓' if acu else 'NO ✗ (needs owner CONFIRM)'))
+conf=[c for c in calls if c['path']=='/vault/booking/status']
+print('   booking marked confirmed: '+('yes ✓' if any((c.get('payload') or {}).get('status')=='confirmed' for c in conf) else 'NO ✗'))
+job=[c for c in calls if c['path']=='/vault/job']
+print('   job note written: '+('yes ✓' if job else 'NO ✗'))
+"
+fi
 echo
 echo "── WhatsApp CREA sent ──"
 curl -s localhost:5699/_calls | python3 -c "import sys,json;[print('  →',c['payload'].get('chatId'),'|',c['payload'].get('text','').split(chr(10))[0][:80]) for c in json.load(sys.stdin) if c['path']=='/waha/api/sendText']"

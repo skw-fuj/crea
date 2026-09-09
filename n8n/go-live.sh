@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  CREA v2 — go live.  One command, idempotent, safe to re-run.
+#  CREA v3.1 — go live.  One command, idempotent, safe to re-run.
 #
 #    ./go-live.sh            bring the whole stack up and wire everything
 #    ./go-live.sh --status   what's running
 #    ./go-live.sh --qr       (re)print the WhatsApp pairing QR
 #    ./go-live.sh --test     send a test message through the live assistant
+#    ./go-live.sh --bookings           list held bookings waiting on your CONFIRM
+#    ./go-live.sh --confirm <ref>      book a held booking in (creates the Acuity appt)
+#    ./go-live.sh --decline <ref>      release a held booking
 #    ./go-live.sh --stop     stop the stack (data is kept)
 #    ./go-live.sh --down     stop and remove containers (named volumes kept)
 #    ./go-live.sh --logs [service]
@@ -124,6 +127,27 @@ PY
   --logs) shift; compose logs -f --tail=120 "$@"; exit 0 ;;
   --qr)   MODE=qr ;;
   --test) MODE=test ;;
+  --confirm|--decline)
+    act="${1#--}"; ref="${2:-}"
+    [ -n "$ref" ] || die "usage: ./go-live.sh --$act <ref>   (the ref CREA texted you, e.g. 4A2)"
+    [ -f "$ENVCLEAN" ] || build_clean_env
+    code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$(N8N_URL)/webhook/crea-book-confirm" \
+      -H 'content-type: application/json' -d "{\"action\":\"$act\",\"ref\":\"$ref\"}")
+    [ "$code" = "200" ] && ok "sent: $act $ref  (CREA is creating the appointment + telling the customer)" \
+      || die "n8n did not accept it (HTTP $code) — is the stack up? ./go-live.sh --status"
+    exit 0 ;;
+  --bookings)
+    [ -f "$ENVCLEAN" ] || build_clean_env
+    b "held bookings waiting on your CONFIRM"
+    compose exec -T vault-api wget -qO- "http://localhost:5692/booking/pending" 2>/dev/null \
+      | python3 -c 'import sys,json
+try: r=json.load(sys.stdin)
+except: r=[]
+if not r: print("  (none)")
+for x in r: print("  %-6s %s  %s" % (x.get("ref","?"), (x.get("brief") or {}).get("address","?"), x.get("datetime") or x.get("estimate") or ""))' \
+      || warn "could not read pending bookings — ./go-live.sh --status"
+    echo "  confirm one:  ./go-live.sh --confirm <ref>"
+    exit 0 ;;
   --export)
     [ -f "$ENVCLEAN" ] || build_clean_env
     TS=$(date +%Y%m%d-%H%M%S); OUT="$DEPLOY/_export/$TS"; mkdir -p "$OUT"
@@ -238,7 +262,7 @@ for f in glob.glob(__import__('sys').argv[1]+"/crea-*.json"):
     if ch: json.dump(o,open(f,"w"),indent=2)
 PY
 n8n_cli import:workflow --separate --input=/workflows >/dev/null 2>&1 || true
-CORE="creaerrorhandler creawasend creallm creawainbound creabookingagent creaaiassistant creaselfcheck creamondayinvoice creacardpipeline"
+CORE="creaerrorhandler creawasend creallm creawainbound creabookingagent creaaiassistant creabooking creamsgclient creaselfcheck creamondayinvoice creacardpipeline"
 for id in $CORE; do n8n_cli update:workflow --id="$id" --active=true >/dev/null 2>&1 || true; done
 on="core booking loop + error handler + invoicing + card pipeline"
 if [ -n "$(cfg CREA_ACUITY_USER_ID)" ]; then
@@ -317,7 +341,7 @@ curl -sf -X POST "$(N8N_URL)/webhook/crea-wa-inbound" -H 'content-type: applicat
 sleep 6
 S=$(compose exec -T vault-api wget -qO- "http://localhost:5692/state?key=${T}" 2>/dev/null || echo '{}')
 echo "  assistant state for the test number:"; echo "  $S"
-case "$S" in *'"mode": "ai"'*|*'"mode":"ai"'*) ok "the assistant handled it — CREA v2 is live" ;;
+case "$S" in *'"mode": "ai"'*|*'"mode":"ai"'*) ok "the assistant handled it — CREA is live" ;;
   *) warn "no assistant state yet — send a real WhatsApp to the bot and check ./go-live.sh --logs n8n" ;; esac
 echo
 echo "  Watch it work:  open $(N8N_URL)  → any CREA workflow → Executions"

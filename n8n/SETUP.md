@@ -1,4 +1,4 @@
-# CREA v3 — n8n Hands Layer · how it fits together
+# CREA v3.1 — n8n Hands Layer · how it fits together
 
 **To install:** follow `INSTALL.md`. This file is the reference for what the pieces are and
 how they connect — read it once you're up, or when you want to change something.
@@ -32,8 +32,10 @@ whole thing survives a reboot, and WAHA re-links from its saved session. A **hos
 | `crea-wa-send` | called by the others | the one place WhatsApp is sent — swap gateways here only |
 | `crea-llm` | called by the assistant + the briefing | the one place a language model is called — circuit breaker + optional second endpoint |
 | `crea-01-whatsapp-inbound` | WAHA message webhook | drops groups/status/blocklisted; rate-limits floods; dedupes; marks an active booking chat and routes to the assistant; everything else → vault inbox (+ owner relay on a separate number) |
-| `crea-02b-ai-assistant` | booking chat (default) | answers from the knowledge base, checks availability read-only, captures the brief, hands the owner a quote-ready enquiry. Every reply passes **Guard Reply** (strips invented prices, softens confirmations, blocks prompt leaks). Falls through to `crea-02` when `crea-llm` reports the model is down. |
-| `crea-02-booking-agent` | AI fallback / opt-in | fixed 5-question qualifier |
+| `crea-02b-ai-assistant` | booking chat (default) | asks about the property one question at a time, checks availability read-only, optionally calls `/estimate`, **reads the booking back** and waits for an explicit yes. Every reply passes **Guard Reply** (strips invented prices, softens confirmations, blocks prompt leaks). A transient parse failure self-heals with a deterministic next question; only a fully-open circuit falls through to `crea-02`. On confirm: `crea-11` (`CREA_AUTO_BOOK=hold`) or a quote-ready enquiry to the owner (`off`). |
+| `crea-02-booking-agent` | model fully down (circuit open) | fixed 5-question qualifier |
+| `crea-11-booking` | `crea-02b` on customer-confirm · `crea-book-confirm` webhook · voice | holds the booking, WhatsApps the owner a one-tap `CONFIRM <ref>` / `DECLINE <ref>`; on CONFIRM creates the real Acuity appointment (admin mode, only if Acuity is set up + the time is ISO), writes the CREA-native job note, tells the customer. Nothing here books without the owner's CONFIRM. |
+| `crea-12-message-client` | `crea-message-client` webhook (voice / `./go-live.sh`) | one owner-initiated WhatsApp to a customer, through `crea-wa-send`. Resolves a `jobRef` to the number they booked from. Not autonomous outreach. |
 | `crea-03-acuity-intake` | **polls Acuity every 10 min** (+ a local `crea-acuity-poll` webhook for "run now") | new bookings → vault job note + owner ping. Dedupes on a watermark of processed appointment ids. Google Calendar node present but disabled. |
 | `crea-04-shoot-confirmations` | 17:00 daily | WhatsApp-confirm tomorrow's shoots; record each on the vault `/pending` list |
 | `crea-05-chase-noreply` | 09/12/15 daily | nudge unconfirmed clients (max 2), then tell the owner to call |
@@ -79,8 +81,10 @@ store + knowledge + availability + conversation state, all plain files under `CR
 | `GET /knowledge?q=` | crea-02b — section retrieval over `knowledge/crea-knowledge.md` |
 | `GET /availability` | crea-02b — real Acuity API if `CREA_ACUITY_*` are set, else a sane default |
 | `GET/POST /state` | crea-01/02/02b/03 — conversation state, watermarks, merged on write |
-| `POST /job` · `POST /job/invoiced` · `GET /jobs?filter=billable` | crea-03, crea-07 |
+| `POST /job` · `POST /job/invoiced` · `GET /jobs?filter=billable` | crea-03, crea-07, crea-11. With `CREA_VAULT_PROFILE=crea` (default) `/job` and `/lead` also write CREA-native `Jobs/`, `Clients/`, `Leads/` notes for the voice assistant. |
 | `POST /lead` · `POST /leads` · `GET /leads` | crea-02/02b, crea-10 |
+| `POST /estimate` · `GET /pricing-mode` | crea-02b — the pricing engine (`defer` / `packages` / `calculator` from `knowledge/pricing.json`) |
+| `POST /booking/hold` · `GET /booking?ref=` · `GET /booking/pending` · `POST /booking/status` | crea-11, `./go-live.sh --bookings` |
 | `POST /inbox` | crea-01 |
 | `POST /pending` · `GET /pending` · `POST /pending/update` | crea-04, crea-05 |
 | `POST /shoots` · `POST /invoice-draft` | crea-06, crea-07 |

@@ -12,3 +12,4 @@ vault-api/data/
 test/test.live.env
 *.log
 .DS_Store
+knowledge/pricing.json

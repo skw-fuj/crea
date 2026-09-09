@@ -147,6 +147,57 @@ const server = http.createServer(async (req, res) => {
     }
     if (path === '/vault/leads' && req.method === 'GET')
       return send(res, 200, [{ key: 'https://ex.com/l/1', address: '5 Bay St, Mosman' }]); // one already known -> dedupe drops it
+
+    // ---- v3.1 booking: pricing + hold/confirm ----
+    if (path === '/vault/pricing-mode')
+      return send(res, 200, { mode: process.env.MOCK_PRICING_MODE || 'calculator', rules_present: true });
+    if (path === '/vault/estimate') {
+      const b = (payload && (payload.brief || payload)) || {};
+      const mode = process.env.MOCK_PRICING_MODE || 'calculator';
+      if (mode === 'defer') return send(res, 200, { mode: 'defer' });
+      const beds = Number(b.bedrooms || 0) || 0, baths = Number(b.bathrooms || 0) || 0;
+      const lvl = Number(b.levels || 1) || 1, sqm = Number(b.floor_sqm || b.land_sqm || 0) || 0;
+      const svc = String(b.service || '').toLowerCase();
+      if (mode === 'packages') {
+        const base = svc.includes('video') ? 450 : 295;
+        const mid = Math.round(base * (sqm > 400 || beds >= 5 ? 1.4 : sqm > 250 || beds >= 4 ? 1.2 : 1));
+        return send(res, 200, { mode: 'packages', low: Math.round(mid * 0.85 / 5) * 5, high: Math.round(mid * 1.2 / 5) * 5, currency: 'AUD' });
+      }
+      let t = svc.includes('video') ? 450 : svc.includes('combo') || svc.includes('both') ? 650 : 295;
+      const bd = [['base', t]];
+      const add = (k, n) => { if (n) { t += n; bd.push([k, n]); } };
+      add('bedrooms', beds * 15); add('bathrooms', baths * 10); add('levels', (lvl - 1) * 60);
+      add('size', sqm > 600 ? 320 : sqm > 350 ? 180 : sqm > 200 ? 80 : 0);
+      if (b.pool === true || /pool/i.test(String(b.features || ''))) add('pool', 60);
+      if (/drone/i.test(svc)) add('drone', 150);
+      t = Math.max(t, 250); t = Math.round(t / 5) * 5;
+      return send(res, 200, { mode: 'calculator', price: t, currency: 'AUD', breakdown: bd, disclaimer: 'Estimate — the owner confirms the final quote.' });
+    }
+    if (path === '/vault/booking/hold') {
+      const ref = (payload && payload.ref) || (Math.random().toString(36).slice(2, 5).toUpperCase() + Math.floor(Math.random() * 90 + 10));
+      const rec = { ...(payload || {}), ref, status: 'held', heldAt: new Date().toISOString() };
+      state.set('booking:' + ref, rec);
+      return send(res, 200, rec);
+    }
+    if (path === '/vault/booking' && req.method === 'GET') {
+      const ref = (u.searchParams.get('ref') || '').toUpperCase();
+      const rec = state.get('booking:' + ref);
+      return send(res, rec ? 200 : 404, rec || { error: 'no such booking ref' });
+    }
+    if (path === '/vault/booking/pending') {
+      const out = [];
+      for (const [k, v] of state) if (k.startsWith('booking:') && v && v.status === 'held') out.push(v);
+      return send(res, 200, out);
+    }
+    if (path === '/vault/booking/status') {
+      const ref = (payload && payload.ref || '').toUpperCase();
+      const rec = state.get('booking:' + ref) || { ref };
+      rec.status = (payload && payload.status) || 'confirmed';
+      rec.decidedAt = new Date().toISOString();
+      state.set('booking:' + ref, rec);
+      return send(res, 200, rec);
+    }
+
     return send(res, 200, { ok: true, stored: path.split('/').slice(2).join('/'), id: 'v_' + Date.now() });
   }
 
@@ -188,6 +239,10 @@ const server = http.createServer(async (req, res) => {
   if (path.startsWith('/acuity/appointments')) {
     const m = path.match(/\/acuity\/appointments\/(\d+)/);
     if (m) return send(res, 200, mockAppt(m[1]));
+    if (req.method === 'POST') { // crea-11 creating a real appointment
+      const a = mockAppt(String(Date.now()).slice(-5));
+      return send(res, 200, { ...a, datetime: (payload && payload.datetime) || a.datetime, firstName: (payload && payload.firstName) || a.firstName });
+    }
     return send(res, 200, [mockAppt('9001'), mockAppt('9002')]);
   }
 

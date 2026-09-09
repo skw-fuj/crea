@@ -1,0 +1,207 @@
+{
+  "id": "creamsgclient",
+  "name": "CREA \u2014 Message a Client (Macro)",
+  "meta": {
+    "family": "cross-cutting",
+    "mode": "macro",
+    "note": "Outbound one-off WhatsApp to a customer, on the owner's instruction (via the CREA voice assistant or ./go-live.sh). POST { phone | jobRef, text }. Resolves a jobRef to the number the customer booked from, then sends through crea-wa-send. NOT autonomous outreach \u2014 every call is owner-initiated.",
+    "steps": [
+      "receive",
+      "resolve_number",
+      "send"
+    ]
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "crea-message-client",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "trig",
+      "name": "Owner request (webhook)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        220,
+        300
+      ],
+      "webhookId": "crea-message-client"
+    },
+    {
+      "parameters": {
+        "jsCode": "const src = ($json && ($json.body || $json)) || {};\nconst text = String(src.text || src.message || '').trim();\nif (!text) throw new Error('message-client: empty text');\nlet phone = String(src.phone || src.to || '').replace(/[^0-9]/g, '');\nconst ref = String(src.jobRef || src.ref || '').toUpperCase().replace(/[^A-Z0-9]/g, '');\nreturn [{ json: { phone, ref, text, needLookup: !phone && !!ref } }];"
+      },
+      "id": "norm",
+      "name": "Normalize",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "loose"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.needLookup }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "needif",
+      "name": "Need lookup?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        640,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ '{{CREA_VAULT_API_URL}}/booking?ref=' + $json.ref }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "look",
+      "name": "Lookup Booking",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        860,
+        220
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const n = $node['Normalize'].json;\nlet phone = n.phone;\nif (!phone) {\n  try {\n    const b = $node['Lookup Booking'].json || {};\n    const br = b.brief || {};\n    phone = String(b.from || br.phone || b.phone || '').replace(/[^0-9]/g, '');\n  } catch (e) {}\n}\nif (!phone) throw new Error('message-client: could not resolve a phone number');\nreturn [{ json: { phone, text: n.text } }];"
+      },
+      "id": "pick",
+      "name": "Pick Number",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1080,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "creawasend",
+          "mode": "id",
+          "cachedResultName": "CREA \u2014 WA Send (WAHA atomic)"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "to": "={{ $json.phone }}",
+            "text": "={{ $json.text }}"
+          },
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "id": "send",
+      "name": "Send",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1300,
+        300
+      ],
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Owner request (webhook)": {
+      "main": [
+        [
+          {
+            "node": "Normalize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize": {
+      "main": [
+        [
+          {
+            "node": "Need lookup?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Need lookup?": {
+      "main": [
+        [
+          {
+            "node": "Lookup Booking",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Pick Number",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lookup Booking": {
+      "main": [
+        [
+          {
+            "node": "Pick Number",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick Number": {
+      "main": [
+        [
+          {
+            "node": "Send",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "creaerrorhandler"
+  }
+}

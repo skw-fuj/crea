@@ -9,6 +9,11 @@ __pycache__/
 # n8n Hands Layer — local/generated
 .DS_Store
 n8n/config.env
+n8n/config.env.*
+n8n/deploy/.env
+n8n/deploy/.n8n-key
+n8n/deploy/_filled/
+n8n/deploy/whatsapp-qr.png
 n8n/workflows/_filled/
 n8n/vault-api/data/
 n8n/test/test.live.env

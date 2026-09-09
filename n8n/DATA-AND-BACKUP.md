@@ -11,23 +11,22 @@ to fix that.
 
 | What | Where | Written by |
 |---|---|---|
-| Job notes, leads, WhatsApp inbox, shoot records, draft invoices, failure alerts | `CREA_VAULT_DIR` (default `n8n/vault-api/data/`) — one `.json` + one readable `.md` per item | the vault API |
-| Conversation state + transcripts | same folder, `state/` | the assistant |
-| The knowledge the assistant answers from | `n8n/knowledge/crea-knowledge.md` | you |
-| Everything else CREA tracks (the job pipeline, dashboards) | your CREA Obsidian vault | CREA's own skills |
+| Job notes, leads, WhatsApp inbox, shoot records, draft invoices, conversation state, failure alerts | `CREA_VAULT_DIR` — one `.json` + one readable `.md` per item. Blank = a Docker volume (`crea_vault`), local only. | the vault-api container |
+| The knowledge the assistant answers from | `knowledge/crea-knowledge.md` | you |
 
 ## The fix: point the vault API at your Obsidian vault, and sync the vault
 
-CREA already keeps its memory in an **Obsidian vault** of plain-text notes. Put the n8n
-data there too, and one solution covers backup **and** every device:
+Put the automation data inside your Obsidian vault and one solution covers backup **and**
+every device:
 
-1. In `config.env`, set:
+1. In `config.env`, set `CREA_VAULT_DIR` to an **absolute** path to a folder inside your
+   Obsidian vault (it will be created):
    ```
-   CREA_VAULT_DIR=~/crea/vault/automations
+   CREA_VAULT_DIR=/Users/connell/Obsidian/CREA/automations
    ```
-   (or wherever your CREA vault is — check `crea status`). Re-run `./go-live.sh`.
-   Now the job notes, leads and inbox land inside your vault as markdown you can read in
-   Obsidian.
+   `~` shorthand works too. Re-run `./go-live.sh`. The job notes, leads and inbox now land
+   inside your vault as Markdown you can read in Obsidian — and the vault-api container mounts
+   that exact folder, so there's no copy step.
 
 2. **Sync the vault.** Ranked best to minimum:
 
@@ -49,8 +48,9 @@ data there too, and one solution covers backup **and** every device:
 - Don't edit the same note in Obsidian on two devices while both are offline, then sync —
   that's the one case cloud folders handle badly. Obsidian Sync merges it; the others may
   leave a conflict copy.
-- Don't commit `config.env` or `vault-api/data/` to git — the shipped `.gitignore` already
-  excludes them.
+- Don't put `CREA_VAULT_DIR` inside iCloud Drive — see the eviction warning above.
+- Also back up `config.env` (your keys) and `deploy/.n8n-key` (the n8n encryption key) — to a
+  password manager. Losing `.n8n-key` means re-entering every API key.
 
 ## TL;DR
 

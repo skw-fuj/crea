@@ -1,0 +1,81 @@
+# CREA v2 — the whole stack, one file.
+#
+#   cd ..
+#   ./go-live.sh                  # fills config, brings this up, imports + activates everything
+#
+# Services (all restart:unless-stopped, so they survive a reboot once Docker Desktop is set
+# to "Start Docker Desktop when you sign in"):
+#   n8n        the automation engine + editor UI          http://localhost:5678
+#   waha       WhatsApp gateway (scan the QR once)         http://localhost:3001
+#   vault-api  CREA's memory: knowledge, state, jobs...    internal only (:5692)
+#
+# No public URL / tunnel is needed: WhatsApp talks to n8n on the internal Docker network,
+# and Acuity is polled outbound every 10 min by crea-03, not via a webhook.
+
+name: crea
+
+services:
+  n8n:
+    image: n8nio/n8n:2.30.7
+    container_name: crea-n8n
+    restart: unless-stopped
+    ports:
+      - "${CREA_N8N_PORT:-5678}:5678"
+    environment:
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY:?run ./go-live.sh (it generates and stores this in deploy/.n8n-key)}
+      - N8N_HOST=localhost
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - WEBHOOK_URL=http://localhost:${CREA_N8N_PORT:-5678}/
+      - GENERIC_TIMEZONE=${CREA_TIMEZONE:-Australia/Sydney}
+      - TZ=${CREA_TIMEZONE:-Australia/Sydney}
+      - N8N_DIAGNOSTICS_ENABLED=false
+      - N8N_PERSONALIZATION_ENABLED=false
+      - N8N_SECURE_COOKIE=false
+      - N8N_RUNNERS_ENABLED=true
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./_filled:/workflows:ro
+    depends_on:
+      - vault-api
+
+  waha:
+    image: devlikeapro/waha:latest
+    container_name: crea-waha
+    restart: unless-stopped
+    ports:
+      - "${CREA_WAHA_PORT:-3001}:3000"
+    environment:
+      - WAHA_API_KEY=${CREA_WAHA_API_KEY:?set CREA_WAHA_API_KEY in config.env}
+      - WHATSAPP_DEFAULT_ENGINE=WEBJS
+      - WHATSAPP_HOOK_URL=http://n8n:5678/webhook/crea-wa-inbound
+      - WHATSAPP_HOOK_EVENTS=message
+      - WHATSAPP_RESTART_ALL_SESSIONS=true
+      - TZ=${CREA_TIMEZONE:-Australia/Sydney}
+    volumes:
+      - waha_sessions:/app/.sessions
+
+  vault-api:
+    image: node:20-alpine
+    container_name: crea-vault-api
+    restart: unless-stopped
+    working_dir: /app
+    command: node server.js
+    environment:
+      - VAULT_API_PORT=5692
+      - VAULT_DIR=/vault
+      - KNOWLEDGE_FILE=/knowledge/crea-knowledge.md
+      - ACUITY_USER_ID=${CREA_ACUITY_USER_ID:-}
+      - ACUITY_API_KEY=${CREA_ACUITY_API_KEY:-}
+      - ACUITY_APPT_TYPE_ID=${CREA_ACUITY_APPT_TYPE_ID:-}
+    volumes:
+      - ../vault-api:/app:ro
+      - ../knowledge:/knowledge:ro
+      - ${CREA_VAULT_DIR_ABS:-crea_vault}:/vault
+    expose:
+      - "5692"
+
+volumes:
+  n8n_data:
+  waha_sessions:
+  crea_vault:

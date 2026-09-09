@@ -69,7 +69,7 @@ for m in "d1|Hi, I need a video shot for a new listing" "d2|Video and a 3D tour"
          "d5|Lockbox code 4471, owner will be home"; do
   msg "${m%%|*}" "$F" "${m#*|}"; sleep 2.5
 done
-curl -s -o /dev/null -X POST $N8N/webhook/crea-acuity -H 'content-type: application/json' -d '{"action":"appointment.scheduled","id":"9042"}'; sleep 3
+curl -s -o /dev/null -X POST $N8N/webhook/crea-acuity-poll -H 'content-type: application/json' -d '{}'; sleep 4
 curl -s -o /dev/null -X POST $N8N/webhook/crea-card -H 'content-type: application/json' \
   -d '{"cardId":"CARD-DEMO","files":[{"name":"MVI_001.MP4","capturedAt":"2026-09-08T08:05:00Z"},{"name":"MVI_002.MP4","capturedAt":"2026-09-08T08:31:00Z"},{"name":"MVI_010.MP4","capturedAt":"2026-09-08T13:15:00Z"},{"name":"MVI_011.MP4","capturedAt":"2026-09-08T13:44:00Z"}]}'
 sleep 3

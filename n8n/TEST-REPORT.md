@@ -22,7 +22,7 @@ Final state: `mode: ai`, `booking_ready: true`, clean 6-turn transcript. 8 model
 knowledge lookups, 8 availability checks, 4 lead notes, 0 errors across 47 executions
 (card pipeline correctly `waiting` at the human gate).
 
-Two bugs this pass caught and fixed:
+Bugs this pass caught and fixed:
 
 - **Consecutive-message race** — a second message arriving while the first turn's assistant
   run was still finishing was read against stale state and fell to the inbox. `crea-01` now
@@ -31,6 +31,26 @@ Two bugs this pass caught and fixed:
 - **Stateless test stub** — `mock-services.js` `/vault/state` didn't persist, so the
   multi-turn path was never really exercised offline. It now merges and holds state like the
   shipped vault API.
+- **Inline comments leaking into workflows** — `fill-config.sh` copied a `{{TOKEN}}`'s value
+  verbatim, so a `config.env` line like `CREA_LLM_MODEL=gpt  # fast` put the comment into the
+  workflow JSON. It now strips a trailing ` # comment` and surrounding quotes/whitespace.
+
+## crea-03 is now a poller (2026-09-09)
+
+`crea-03` was an Acuity webhook, which needed a public URL. It now **polls the Acuity API
+every 10 minutes** (plus a local `crea-acuity-poll` webhook for "run now"), deduping on a
+watermark of processed appointment ids kept in the vault state. Verified: first poll ingested
+two mock appointments → two job records + owner pings, watermark `["9001","9002"]`; a second
+poll processed **zero** new. This removes the last reason CREA would need an inbound tunnel.
+
+## Packaging (2026-09-09)
+
+CREA v2 ships as a Docker Compose stack (`deploy/docker-compose.yml` — n8n + WAHA +
+vault-api) driven by `./go-live.sh`. **The compose bring-up itself was not run on the build
+machine** (it could not run Docker). It was validated with `docker compose config` (full env
+interpolation + volume/port resolution), and every workflow, the vault API, `fill-config.sh`
+and the credential/import logic were verified against a host n8n 2.30.7. `./go-live.sh --test`
+performs the same end-to-end assistant check on the buyer's Mac and is the acceptance gate.
 
 ## Result — all workflows reach their designed end
 
@@ -41,7 +61,7 @@ Two bugs this pass caught and fixed:
 | `crea-02b` fallback | with the LLM endpoint returning 503, the assistant handed the live conversation to `crea-02`; the customer got the deterministic greeting, state advanced — chain all `success` |
 | `crea-02` qualifier | the fixed 5-question flow captured a full brief and pushed it to the vault |
 | `crea-wa-send` | every WhatsApp send in the suite went through this one node |
-| `crea-03` Acuity intake | webhook → fetch appointment → vault job note → owner ping |
+| `crea-03` Acuity intake | polls Acuity → selects appointments not in the watermark → vault job note + owner ping → saves the watermark; a re-poll processes nothing |
 | `crea-04` confirmations | tomorrow's appointments → one confirmation each → recorded as pending |
 | `crea-05` chase | overdue pending → a nudge; a row at 2 nudges escalates to the owner |
 | `crea-06` card pipeline | files split into shoots on the capture gap, recorded, then **paused at the human gate** — nothing pushed downstream without approval |
@@ -65,8 +85,9 @@ Two bugs this pass caught and fixed:
 6. **Fan-in race** — a code node ran before its second input finished. Chains linearised.
 7. **Reference to a disabled node throws** — removed.
 
-## Not exercised (needs real accounts)
+## Not exercised (needs the buyer's machine + accounts)
 
-WhatsApp delivery through a live WAHA container · the card-pipeline resume leg · Google
-Calendar / Drive · the live Acuity / Apify / Higgsfield APIs. The request shapes match their
-docs; confirm Higgsfield's endpoint against a live key.
+The `docker compose` bring-up · WhatsApp delivery through a live WAHA container + QR pairing ·
+the card-pipeline resume leg · Google Calendar / Drive · the live Acuity / Apify / Higgsfield
+APIs. Request shapes match their docs. `./go-live.sh --test` covers the assistant path on the
+buyer's Mac; confirm Higgsfield's endpoint against a live key.

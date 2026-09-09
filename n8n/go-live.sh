@@ -50,6 +50,11 @@ build_clean_env(){
     printf '%s=%s\n' "$k" "$v" >> "$ENVCLEAN"
   done < config.env
   printf 'N8N_ENCRYPTION_KEY=%s\n' "$(cat "$KEYFILE")" >> "$ENVCLEAN"
+  # WAHA ships arch-specific images; the arm64 build is NOWEB-only.
+  case "$(uname -m)" in
+    arm64|aarch64) printf 'CREA_WAHA_IMAGE=devlikeapro/waha:noweb-arm\nCREA_WAHA_ENGINE=NOWEB\n' >> "$ENVCLEAN" ;;
+    *)             printf 'CREA_WAHA_IMAGE=devlikeapro/waha:noweb\nCREA_WAHA_ENGINE=NOWEB\n' >> "$ENVCLEAN" ;;
+  esac
   local vd; vd="$(cfg CREA_VAULT_DIR)"; vd="${vd/#\~/$HOME}"
   if [ -n "$vd" ]; then mkdir -p "$vd" || die "cannot create CREA_VAULT_DIR: $vd"
     printf 'CREA_VAULT_DIR_ABS=%s\n' "$vd" >> "$ENVCLEAN"
@@ -83,6 +88,9 @@ b "1/8  preflight"
 command -v docker >/dev/null || die "Docker is not installed. INSTALL.md → Part A step 2."
 docker info >/dev/null 2>&1 || die "Docker Desktop isn't running. Open it, wait for the steady whale icon, re-run."
 docker compose version >/dev/null 2>&1 || die "'docker compose' missing — update Docker Desktop."
+free_gb=$(df -g / 2>/dev/null | awk 'NR==2{print $4}'); free_gb="${free_gb:-99}"
+[ "$free_gb" -lt 6 ] && die "only ${free_gb} GB free on this disk — the images need ~5 GB and n8n grows over time. Free up space (aim for 15 GB) and re-run."
+[ "$free_gb" -lt 15 ] && warn "only ${free_gb} GB free — enough to start, but keep an eye on it (aim for 15 GB)."
 if [ ! -f config.env ]; then
   cp config.example.env config.env
   warn "created config.env from the example."

@@ -40,14 +40,16 @@ services:
       - vault-api
 
   waha:
-    image: devlikeapro/waha:latest
+    # go-live.sh picks the image + engine by CPU architecture (WAHA ships separate
+    # amd64 / arm64 images, and the arm64 build is NOWEB-only — no Chromium).
+    image: ${CREA_WAHA_IMAGE:-devlikeapro/waha:noweb}
     container_name: crea-waha
     restart: unless-stopped
     ports:
       - "${CREA_WAHA_PORT:-3001}:3000"
     environment:
       - WAHA_API_KEY=${CREA_WAHA_API_KEY:?set CREA_WAHA_API_KEY in config.env}
-      - WHATSAPP_DEFAULT_ENGINE=WEBJS
+      - WHATSAPP_DEFAULT_ENGINE=${CREA_WAHA_ENGINE:-NOWEB}
       - WHATSAPP_HOOK_URL=http://n8n:5678/webhook/crea-wa-inbound
       - WHATSAPP_HOOK_EVENTS=message
       - WHATSAPP_RESTART_ALL_SESSIONS=true

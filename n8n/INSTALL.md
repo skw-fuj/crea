@@ -12,7 +12,9 @@ capturing shoot briefs, and (if you connect Acuity) running your shoot-ops autom
 
 1. **Pick the Mac.** Your main Mac is fine, or a cheap Mac mini left on in a cupboard. It must
    be awake during the hours you want the bot to reply. 16 GB RAM is comfortable; 8 GB works.
-   Check free disk: **Apple menu → About This Mac → More Info → Storage.** You want ~10 GB free.
+   Check free disk: **Apple menu → About This Mac → More Info → Storage.** You want **~15 GB
+   free** — the WhatsApp gateway image alone is ~3.5 GB, and n8n's database grows over time.
+   `go-live.sh` refuses to start below 6 GB and warns below 15 GB.
 
 2. **Install Docker Desktop.**
    - Download from <https://www.docker.com/products/docker-desktop/> (choose Apple Silicon or Intel to match your Mac).
@@ -167,8 +169,9 @@ re-running `./go-live.sh`.
 
 | Symptom | Fix |
 |---|---|
-| `go-live.sh` says "Docker Desktop is not running" | Open Docker Desktop, wait for the steady whale icon, re-run. If it won't start: check you have ~10 GB free disk. |
-| First run is very slow / seems stuck | It's downloading ~2 GB of images. `./go-live.sh --logs` in another Terminal tab to watch. |
+| `go-live.sh` says "Docker Desktop is not running" | Open Docker Desktop, wait for the steady whale icon, re-run. If it won't start: check you have ~15 GB free disk — Docker fails badly when the disk fills. |
+| First run is very slow / seems stuck | It's downloading ~5 GB of images (the WhatsApp gateway is the big one). `./go-live.sh --logs` in another Terminal tab to watch. |
+| `no matching manifest for linux/arm64` | You're on an old copy — `go-live.sh` now picks the right WhatsApp-gateway image for your CPU automatically. Re-unzip the latest. |
 | QR won't scan or session stuck on `SCAN_QR_CODE` | `./go-live.sh --qr` again. In the dashboard, **Stop** then **Start** the `default` session. Make sure the bot phone has signal and WhatsApp is up to date. |
 | Assistant replies *"I'll pass this to the team"* to everything | The LLM key is wrong or the provider is down. Check `CREA_OMNIROUTE_KEY`, then `./go-live.sh --logs n8n`. |
 | It never quotes a price | You haven't filled the Price column in `knowledge/crea-knowledge.md` (Part D). |

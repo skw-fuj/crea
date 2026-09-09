@@ -9,8 +9,12 @@
 #    ./go-live.sh --stop     stop the stack (data is kept)
 #    ./go-live.sh --down     stop and remove containers (named volumes kept)
 #    ./go-live.sh --logs [service]
+#    ./go-live.sh --export   dump the live workflows to deploy/_export/<ts>/ (to keep UI edits)
+#    ./go-live.sh --backup   full backup -> backups/crea-<ts>.tgz (config, key, workflows, data)
+#    ./go-live.sh --restore <file>   restore config.env + encryption key from a backup
 #
-#  Prereq: Docker Desktop installed and running.  Full runbook: INSTALL.md
+#  Prereq: Docker Desktop installed and running.
+#  Install runbook: INSTALL.md    Day-to-day changes / updates / features: OPERATIONS.md
 # =============================================================================
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -50,6 +54,11 @@ build_clean_env(){
     printf '%s=%s\n' "$k" "$v" >> "$ENVCLEAN"
   done < config.env
   printf 'N8N_ENCRYPTION_KEY=%s\n' "$(cat "$KEYFILE")" >> "$ENVCLEAN"
+  mkdir -p "$DEPLOY/_export"
+  # optional n8n editor login
+  if [ -n "$(cfg CREA_N8N_USER)" ] && [ -n "$(cfg CREA_N8N_PASSWORD)" ]; then
+    printf 'CREA_N8N_AUTH_ACTIVE=true\n' >> "$ENVCLEAN"
+  else printf 'CREA_N8N_AUTH_ACTIVE=false\n' >> "$ENVCLEAN"; fi
   # WAHA ships arch-specific images; the arm64 build is NOWEB-only.
   case "$(uname -m)" in
     arm64|aarch64) printf 'CREA_WAHA_IMAGE=devlikeapro/waha:noweb-arm\nCREA_WAHA_ENGINE=NOWEB\n' >> "$ENVCLEAN" ;;
@@ -77,8 +86,39 @@ case "${1:-}" in
   --logs) shift; compose logs -f --tail=120 "$@"; exit 0 ;;
   --qr)   MODE=qr ;;
   --test) MODE=test ;;
+  --export)
+    [ -f "$ENVCLEAN" ] || build_clean_env
+    TS=$(date +%Y%m%d-%H%M%S); OUT="$DEPLOY/_export/$TS"; mkdir -p "$OUT"
+    compose exec -T n8n sh -c 'rm -rf /export/live && mkdir -p /export/live && n8n export:workflow --backup --output=/export/live/' >/dev/null 2>&1 \
+      && cp "$DEPLOY/_export/live/"*.json "$OUT/" 2>/dev/null \
+      && ok "live workflows exported to deploy/_export/$TS/  (diff against workflows/ to fold UI edits back in)" \
+      || warn "export failed — is the stack up? ./go-live.sh --status"
+    exit 0 ;;
+  --backup)
+    [ -f "$ENVCLEAN" ] || build_clean_env
+    TS=$(date +%Y%m%d-%H%M%S); B="$ROOT/backups/crea-$TS"; mkdir -p "$B"
+    cp config.env "$B/" 2>/dev/null; cp "$KEYFILE" "$B/n8n-key" 2>/dev/null
+    compose exec -T n8n sh -c 'rm -rf /export/bk && mkdir -p /export/bk && n8n export:workflow --backup --output=/export/bk/wf/ && n8n export:credentials --backup --decrypted=false --output=/export/bk/creds/' >/dev/null 2>&1 || warn "n8n export step had issues"
+    [ -d "$DEPLOY/_export/bk" ] && cp -R "$DEPLOY/_export/bk/." "$B/n8n/" 2>/dev/null
+    VD="$(cfg CREA_VAULT_DIR)"; VD="${VD/#\~/$HOME}"
+    if [ -n "$VD" ] && [ -d "$VD" ]; then tar -czf "$B/vault-data.tgz" -C "$VD" . 2>/dev/null && ok "vault data archived"; \
+    else compose run --rm -T -v "$B:/bk" vault-api sh -c 'tar -czf /bk/vault-data.tgz -C /vault .' >/dev/null 2>&1 && ok "vault volume archived"; fi
+    ( cd "$ROOT/backups" && tar -czf "crea-$TS.tgz" "crea-$TS" && rm -rf "crea-$TS" )
+    ok "backup written: backups/crea-$TS.tgz  (config.env + encryption key + workflows + credentials + booking data)"
+    warn "this file contains your API keys and the encryption key — store it somewhere safe, not in the repo"
+    exit 0 ;;
+  --restore)
+    F="${2:-}"; [ -f "$F" ] || die "usage: ./go-live.sh --restore backups/crea-YYYYMMDD-HHMMSS.tgz"
+    T=$(mktemp -d); tar -xzf "$F" -C "$T"; D=$(find "$T" -maxdepth 1 -type d -name 'crea-*' | head -1)
+    [ -d "$D" ] || die "not a CREA backup archive"
+    [ -f "$D/config.env" ] && { cp "$D/config.env" config.env; ok "restored config.env"; }
+    [ -f "$D/n8n-key" ] && { cp "$D/n8n-key" "$KEYFILE"; chmod 600 "$KEYFILE"; ok "restored deploy/.n8n-key"; }
+    [ -f "$D/vault-data.tgz" ] && ok "vault data archive is at $D/vault-data.tgz — extract it into your CREA_VAULT_DIR"
+    rm -rf "$T"
+    warn "now run ./go-live.sh to rebuild the stack, then re-scan the WhatsApp QR"
+    exit 0 ;;
   "")     MODE=full ;;
-  *)      die "unknown option: $1  — see the header of this script or INSTALL.md" ;;
+  *)      die "unknown option: $1  — see the header of this script, INSTALL.md or OPERATIONS.md" ;;
 esac
 
 # ===========================================================================

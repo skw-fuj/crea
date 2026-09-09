@@ -20,7 +20,8 @@ cp config.example.env config.env      # fill: CREA_OWNER_WA, CREA_WAHA_API_KEY, 
 ./go-live.sh --test                    # prove it's live
 ```
 
-Then put your prices in `knowledge/crea-knowledge.md`.
+Then put your prices in `knowledge/crea-knowledge.md`. Everything after that — changing
+prices/wording, config, updates, new features, backups, recovery — is in **`OPERATIONS.md`**.
 
 **Handing it to someone:** give them `HANDOVER.md` + `INSTALL.md`.
 
@@ -62,7 +63,8 @@ stores everything as plain files under `CREA_VAULT_DIR`.
 | `vault-api/server.js` | memory + job store + knowledge + availability + conversation state — one zero-dep service |
 | `knowledge/crea-knowledge.md` | what the assistant answers from. Ships usable; put prices in one table. `EXAMPLE-filled.md` shows a done one. |
 | `config.example.env` | every account/key, each marked REQUIRED/optional |
-| `HANDOVER.md` · `SETUP.md` · `DATA-AND-BACKUP.md` · `TEST-REPORT.md` | cover note, reference, keeping data safe, verification |
+| `HANDOVER.md` · `INSTALL.md` · `OPERATIONS.md` | cover note · one-time setup · day-2: changes, updates, features, backup, recovery |
+| `SETUP.md` · `DATA-AND-BACKUP.md` · `TEST-REPORT.md` | how it fits together · full storage/sync guide · verification |
 | `facet-template/` | the same shape generalised for any other assistant — `NEW-FACET.md` |
 | `test/` | `mock-services.js` + `demo.sh` — reproduce the verification run offline |
 

@@ -4,7 +4,7 @@ This is the whole runbook. Follow it top to bottom once and CREA is answering Wh
 capturing shoot briefs, and (if you connect Acuity) running your shoot-ops automations.
 
 **Time:** about an hour, most of it waiting for downloads and creating accounts.
-**You need:** a Mac that stays on during business hours, ~10 GB free disk, and the accounts in Part B.
+**You need:** a Mac that stays on during business hours, ~15 GB free disk, and the accounts in Part B.
 
 ---
 
@@ -152,6 +152,14 @@ Meta's terms don't formally allow non-official clients and there's a small, rare
 risk of a number being limited. If your bookings absolutely cannot afford any interruption,
 put CREA on a cheap second SIM instead — everything above still applies, except the alerts
 go to that number's chat with you and CREA relays customer messages to you there.
+
+---
+
+## What next
+
+Day-to-day operation — changing prices and wording, editing config, taking updates, adding or
+removing features, backups, and disaster recovery — is all in **`OPERATIONS.md`**. Read §1
+(prices/wording) and §7–§8 (backup, updates) before you go live for real.
 
 ---
 

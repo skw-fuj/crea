@@ -4,7 +4,9 @@ config.env.*
 deploy/.env
 deploy/.n8n-key
 deploy/_filled/
+deploy/_export/
 deploy/whatsapp-qr.png
+backups/
 workflows/_filled/
 vault-api/data/
 test/test.live.env

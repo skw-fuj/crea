@@ -41,6 +41,8 @@ If you use Claude Code, open it in the unzipped folder and paste this:
 It still can't scan the QR or invent your prices — those stay with you.
 
 ## Support
-Everything is in `INSTALL.md` (install + troubleshooting), `SETUP.md` (how the workflows
-fit together), `DATA-AND-BACKUP.md` (keeping your bookings safe), `TEST-REPORT.md` (what was
-verified).
+- `INSTALL.md` — one-time setup + troubleshooting
+- `OPERATIONS.md` — everything after that: changing prices/wording, config, updates, new
+  features, backups, disaster recovery
+- `DATA-AND-BACKUP.md` — the full Obsidian + storage + sync guide
+- `SETUP.md` — how the workflows fit together · `TEST-REPORT.md` — what was verified

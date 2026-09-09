@@ -1,4 +1,4 @@
-# CREA v2 — your data, storage, sync & backup
+# CREA v3 — your data, storage, sync & backup
 
 Everything CREA remembers is **plain text on your Mac** — no external database, nothing on
 anyone else's system. Great for privacy and control, but a single Mac is a single point of

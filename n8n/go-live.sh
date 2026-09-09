@@ -12,6 +12,8 @@
 #    ./go-live.sh --export   dump the live workflows to deploy/_export/<ts>/ (to keep UI edits)
 #    ./go-live.sh --backup   full backup -> backups/crea-<ts>.tgz (config, key, workflows, data)
 #    ./go-live.sh --restore <file>   restore config.env + encryption key from a backup
+#    ./go-live.sh --selfcheck  run the health self-check now (pages you if something's wrong)
+#    ./go-live.sh --watchdog [remove]   install / remove the background host watchdog
 #
 #  Prereq: Docker Desktop installed and running.
 #  Install runbook: INSTALL.md    Day-to-day changes / updates / features: OPERATIONS.md
@@ -54,7 +56,7 @@ build_clean_env(){
     printf '%s=%s\n' "$k" "$v" >> "$ENVCLEAN"
   done < config.env
   printf 'N8N_ENCRYPTION_KEY=%s\n' "$(cat "$KEYFILE")" >> "$ENVCLEAN"
-  mkdir -p "$DEPLOY/_export"
+  mkdir -p "$DEPLOY/_export" "$ROOT/backups"
   # optional n8n editor login
   if [ -n "$(cfg CREA_N8N_USER)" ] && [ -n "$(cfg CREA_N8N_PASSWORD)" ]; then
     printf 'CREA_N8N_AUTH_ACTIVE=true\n' >> "$ENVCLEAN"
@@ -80,6 +82,42 @@ case "${1:-}" in
     s=$(curl -sf -H "X-Api-Key: $K" "$(WAHA_URL)/api/sessions/default" 2>/dev/null || true)
     [ -n "$s" ] && ok "WhatsApp session: $(printf '%s' "$s" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("status","?"))' 2>/dev/null)" \
                 || warn "WAHA not reachable / no session"
+    H=$(compose exec -T vault-api wget -q -O - http://localhost:5692/health 2>/dev/null || true)
+    if [ -n "$H" ]; then
+      printf '%s' "$H" | python3 - <<'PY' 2>/dev/null || true
+import sys,json
+h=json.load(sys.stdin)
+g="\033[32m"; y="\033[33m"; r="\033[31m"; n="\033[0m"
+print(f"  {g if h.get('ok') else r}{'healthy' if h.get('ok') else 'NEEDS ATTENTION'}{n}  (vault-api v{h.get('version')})")
+for k,v in (h.get('critical') or {}).items():
+    print(f"    {g+'ok'+n if v else r+'PROBLEM'+n}  {k.replace('_',' ')}")
+for k,v in (h.get('advisory') or {}).items():
+    print(f"    {g+'ok'+n if v else y+'to do'+n}  {k.replace('_',' ')}")
+a=h.get('activity_today') or {}
+print(f"  today: {a.get('leads',0)} enquiries · {a.get('jobs',0)} bookings · {a.get('inbox',0)} inbox · {a.get('alerts',0)} alerts")
+lc=h.get('llm') or {}
+print(f"  LLM circuit: {'OPEN (fallback flow)' if lc.get('open') else 'closed'}  ·  disk free: {h.get('disk_free_gb')} GB  ·  last backup: {h.get('last_backup_age_h')} h ago")
+PY
+      echo "  full dashboard: open  http://localhost:$(cfg CREA_VAULT_PORT || echo 5692)/status.html"
+    fi
+    launchctl list 2>/dev/null | grep -q com.crea.watchdog && ok "watchdog installed" || warn "watchdog not installed — ./go-live.sh --watchdog install"
+    exit 0 ;;
+  --selfcheck)
+    [ -f "$ENVCLEAN" ] || build_clean_env
+    curl -sf -m 15 -X POST "$(N8N_URL)/webhook/crea-selfcheck" -d '{}' >/dev/null 2>&1 && ok "self-check triggered — result in the vault _selfcheck state and (if there's a problem) your WhatsApp" || warn "could not reach the self-check webhook — is the stack up?"
+    exit 0 ;;
+  --watchdog)
+    PL="$HOME/Library/LaunchAgents/com.crea.watchdog.plist"
+    if [ "${2:-}" = "remove" ]; then launchctl bootout "gui/$(id -u)/com.crea.watchdog" 2>/dev/null || launchctl unload "$PL" 2>/dev/null || true; rm -f "$PL"; ok "watchdog removed"; exit 0; fi
+    [ -f "$ENVCLEAN" ] || build_clean_env
+    mins="$(cfg CREA_WATCHDOG_MINUTES)"; mins="${mins:-5}"; secs=$(( mins * 60 ))
+    mkdir -p "$HOME/Library/LaunchAgents"
+    sed -e "s#__WATCHDOG_SH__#$DEPLOY/watchdog.sh#" -e "s#__INTERVAL__#$secs#" -e "s#__LOG__#$DEPLOY/_export/watchdog-launchd.log#" \
+      "$DEPLOY/com.crea.watchdog.plist.template" > "$PL"
+    chmod +x "$DEPLOY/watchdog.sh"
+    launchctl bootout "gui/$(id -u)/com.crea.watchdog" 2>/dev/null || true
+    launchctl bootstrap "gui/$(id -u)" "$PL" 2>/dev/null || launchctl load "$PL" 2>/dev/null || true
+    ok "watchdog installed — checks every ${mins} min (./go-live.sh --watchdog remove to stop)"
     exit 0 ;;
   --stop) compose stop; ok "stopped — data kept. ./go-live.sh to resume"; exit 0 ;;
   --down) compose down; ok "containers removed — named volumes kept"; exit 0 ;;
@@ -124,7 +162,7 @@ esac
 # ===========================================================================
 if [ "$MODE" = "full" ]; then
 
-b "1/8  preflight"
+b "1/9  preflight"
 command -v docker >/dev/null || die "Docker is not installed. INSTALL.md → Part A step 2."
 docker info >/dev/null 2>&1 || die "Docker Desktop isn't running. Open it, wait for the steady whale icon, re-run."
 docker compose version >/dev/null 2>&1 || die "'docker compose' missing — update Docker Desktop."
@@ -141,32 +179,35 @@ miss=""; for k in CREA_OWNER_WA CREA_WAHA_API_KEY CREA_OMNIROUTE_URL CREA_OMNIRO
 [ -n "$miss" ] && die "these REQUIRED values are blank in config.env:$miss"
 ok "Docker is running; config.env has the required values"
 
-b "2/8  encryption key"
+b "2/9  encryption key"
 if [ ! -s "$KEYFILE" ]; then ( umask 077; openssl rand -hex 24 > "$KEYFILE" )
   ok "generated deploy/.n8n-key — BACK THIS UP (losing it makes saved credentials unreadable)"
 else ok "using existing deploy/.n8n-key"; fi
 
-b "3/8  fill workflows from config.env"
+b "3/9  fill workflows from config.env"
 ./fill-config.sh config.env workflows >/dev/null || die "fill-config failed — a token in the workflows has no matching line in config.env"
 rm -rf "$DEPLOY/_filled"; mkdir -p "$DEPLOY/_filled"
 cp workflows/_filled/*.json "$DEPLOY/_filled/"
 build_clean_env
 ok "workflows filled → deploy/_filled/ ; clean env → deploy/.env"
 
-b "4/8  pull + start the stack (first run downloads ~2 GB — be patient)"
+b "4/9  pull + start the stack (first run downloads ~5 GB — be patient)"
 compose pull -q 2>/dev/null || warn "pull had warnings — continuing"
 compose up -d
 wait_http "$(N8N_URL)/healthz" "n8n up" 120
 compose exec -T vault-api wget -qO- http://localhost:5692/health >/dev/null 2>&1 && ok "vault API up" || warn "vault API health inconclusive — ./go-live.sh --logs vault-api"
 
-b "5/8  credentials"
+b "5/9  credentials"
 CREDS="$DEPLOY/_filled/.creds.json"
 trap 'rm -f "$CREDS"' EXIT
-python3 - "$CREDS" "$(cfg CREA_OMNIROUTE_KEY)" "$(cfg CREA_ACUITY_USER_ID)" "$(cfg CREA_ACUITY_API_KEY)" "$(cfg CREA_HIGGSFIELD_API_KEY)" <<'PY'
+python3 - "$CREDS" "$(cfg CREA_OMNIROUTE_KEY)" "$(cfg CREA_ACUITY_USER_ID)" "$(cfg CREA_ACUITY_API_KEY)" "$(cfg CREA_HIGGSFIELD_API_KEY)" "$(cfg CREA_OMNIROUTE_KEY_2)" <<'PY'
 import json,sys
-out,okey,auid,akey,hkey=sys.argv[1:6]
+out,okey,auid,akey,hkey,okey2=sys.argv[1:7]
 c=[{"id":"creaomniroutecred","name":"CREA OmniRoute","type":"httpHeaderAuth",
     "data":{"name":"Authorization","value":"Bearer "+okey}}]
+# always create cred 2 so the fallback node has a valid credential; = cred 1 unless a separate key is given
+c.append({"id":"creaomniroutecred2","name":"CREA OmniRoute 2","type":"httpHeaderAuth",
+    "data":{"name":"Authorization","value":"Bearer "+(okey2 or okey)}})
 if auid and akey: c.append({"id":"creaacuitycred","name":"CREA Acuity","type":"httpBasicAuth",
     "data":{"user":auid,"password":akey}})
 if hkey: c.append({"id":"creahiggscred","name":"CREA Higgsfield","type":"httpHeaderAuth",
@@ -177,26 +218,27 @@ n8n_cli import:credentials --input=/workflows/.creds.json >/dev/null 2>&1 && ok 
   || warn "credential import returned an error — ./go-live.sh --logs n8n"
 rm -f "$CREDS"; trap - EXIT
 
-b "6/8  import + bind + activate workflows"
+b "6/9  import + bind + activate workflows"
 n8n_cli import:workflow --separate --input=/workflows >/dev/null 2>&1 || warn "workflow import reported an issue — ./go-live.sh --logs n8n"
 # bind the credentials to the auth nodes so there's nothing to click in the UI
 python3 - "$DEPLOY/_filled" <<'PY'
 import json,glob,re
-BIND={"httpHeaderAuth":("creaomniroutecred","CREA OmniRoute"),
-      "httpBasicAuth":("creaacuitycred","CREA Acuity")}
-HIGG=("creahiggscred","CREA Higgsfield")
 for f in glob.glob(__import__('sys').argv[1]+"/crea-*.json"):
     o=json.load(open(f)); ch=False
     for n in o.get("nodes",[]):
         p=n.get("parameters",{})
         if p.get("authentication")!="genericCredentialType": continue
-        gt=p.get("genericAuthType")
-        cid,cname = HIGG if re.search("higgsfield",(p.get("url","")+n["name"]),re.I) else BIND.get(gt,(None,None))
+        gt=p.get("genericAuthType"); nm=(p.get("url","")+" "+n["name"]).lower()
+        if "higgsfield" in nm: cid,cname=("creahiggscred","CREA Higgsfield")
+        elif "fallback" in nm: cid,cname=("creaomniroutecred2","CREA OmniRoute 2")
+        elif gt=="httpHeaderAuth": cid,cname=("creaomniroutecred","CREA OmniRoute")
+        elif gt=="httpBasicAuth": cid,cname=("creaacuitycred","CREA Acuity")
+        else: cid=None
         if cid: n["credentials"]={gt:{"id":cid,"name":cname}}; ch=True
     if ch: json.dump(o,open(f,"w"),indent=2)
 PY
 n8n_cli import:workflow --separate --input=/workflows >/dev/null 2>&1 || true
-CORE="creaerrorhandler creawasend creawainbound creabookingagent creaaiassistant creamondayinvoice creacardpipeline"
+CORE="creaerrorhandler creawasend creallm creawainbound creabookingagent creaaiassistant creaselfcheck creamondayinvoice creacardpipeline"
 for id in $CORE; do n8n_cli update:workflow --id="$id" --active=true >/dev/null 2>&1 || true; done
 on="core booking loop + error handler + invoicing + card pipeline"
 if [ -n "$(cfg CREA_ACUITY_USER_ID)" ]; then
@@ -209,12 +251,16 @@ if [ -n "$(cfg CREA_APIFY_TOKEN)" ]; then n8n_cli update:workflow --id=creaapify
 else n8n_cli update:workflow --id=creaapifyleads --active=false >/dev/null 2>&1 || true; fi
 compose restart n8n >/dev/null
 wait_http "$(N8N_URL)/healthz" "n8n restarted (webhooks registered)" 120
-ok "activated: $on"
+ok "activated: $on + LLM circuit breaker + self-check"
+
+b "7/9  host watchdog"
+"$0" --watchdog >/dev/null 2>&1 && ok "watchdog installed (checks the stack every $(cfg CREA_WATCHDOG_MINUTES || echo 5) min)" \
+  || warn "watchdog install skipped — run ./go-live.sh --watchdog once the stack is up"
 
 fi   # end MODE=full
 
 # ---------------------------------------------------------------------------
-b "WhatsApp pairing"
+b "8/9  WhatsApp pairing"
 [ -f "$ENVCLEAN" ] || build_clean_env
 K="$(cfg CREA_WAHA_API_KEY)"; W="$(WAHA_URL)"
 curl -sf -X POST "$W/api/sessions" -H "X-Api-Key: $K" -H 'content-type: application/json' -d '{"name":"default","start":true}' >/dev/null 2>&1 \
@@ -263,7 +309,7 @@ if [ "$STATUS" != "WORKING" ] && [ "${MODE:-}" != "test" ]; then
   exit 0
 fi
 
-b "self-test — a real message through the assistant"
+b "9/9  self-test — a real message through the assistant"
 T="61400000000"
 curl -sf -X POST "$(N8N_URL)/webhook/crea-wa-inbound" -H 'content-type: application/json' \
   -d "{\"event\":\"message\",\"session\":\"default\",\"payload\":{\"id\":\"selftest-$(date +%s)\",\"from\":\"${T}@c.us\",\"body\":\"how much for a listing video?\",\"fromMe\":false,\"type\":\"chat\"}}" >/dev/null \

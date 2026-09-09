@@ -4,7 +4,7 @@
   "meta": {
     "family": "scheduled_report_reminder",
     "mode": "macro",
-    "note": "06:30 owner TZ. Gathers today's shoots (Acuity), unconfirmed count + unpaid count + new leads (tracker), asks OmniRoute to phrase a tight 'what to focus on' briefing, and WhatsApps it to the owner. Read-only over the sources.",
+    "note": "06:30 owner TZ. Gathers today's shoots (Acuity), unconfirmed count + unpaid count + new leads (tracker), asks OmniRoute to phrase a tight 'what to focus on' briefing, and WhatsApps it to the owner. Read-only over the sources. v3: calls the model via crea-llm (circuit breaker), Acuity fetch is non-fatal, and the briefing ends with a system-health line whenever CREA needs attention.",
     "steps": [
       "schedule",
       "gather_today",
@@ -108,7 +108,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const appts = $(\"Today's Shoots\").all().map(i => i.json).filter(a => a && a.datetime);\nconst rows = $('Tracker').all().map(i => i.json).filter(r => r && r.jobId);\nconst unpaid = rows.filter(r => String(r.status).toLowerCase()==='completed' && String(r.invoiced).toLowerCase()!=='true').length;\nconst leads = rows.filter(r => ['lead','to-quote'].includes(String(r.status).toLowerCase())).length;\nconst shoots = appts.map(a => ({ time: (a.datetime||'').slice(11,16), client: [a.firstName,a.lastName].filter(Boolean).join(' '), type: a.type, addr: a.location || '' }));\nreturn [{ json: { shoots, counts: { shootsToday: shoots.length, unpaid, leads }, date: $('Today').first().json.today } }];"
+        "jsCode": "const appts = $(\"Today's Shoots\").all().map(i => i.json).filter(a => a && a.datetime);\nconst rows = $('Tracker').all().map(i => i.json).filter(r => r && r.jobId);\nconst unpaid = rows.filter(r => String(r.status).toLowerCase()==='completed' && String(r.invoiced).toLowerCase()!=='true').length;\nconst leads = rows.filter(r => ['lead','to-quote'].includes(String(r.status).toLowerCase())).length;\nconst shoots = appts.map(a => ({ time: (a.datetime||'').slice(11,16), client: [a.firstName,a.lastName].filter(Boolean).join(' '), type: a.type, addr: a.location || '' }));\nconst hs = $node['Health Snapshot'].json || {};\nconst systemLine = hs.line || 'CREA healthy';\nreturn [{ json: { systemLine, shoots, counts: { shootsToday: shoots.length, unpaid, leads }, date: $('Today').first().json.today } }];"
       },
       "id": "merge",
       "name": "Merge Context",
@@ -121,32 +121,40 @@
     },
     {
       "parameters": {
-        "method": "POST",
-        "url": "{{CREA_OMNIROUTE_URL}}",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ model: '{{CREA_LLM_MODEL}}', messages: [ { role: 'system', content: 'You are CREA, a concise assistant for a real estate videographer. Write a 4-6 line WhatsApp morning briefing. Plain text, no markdown headers. Lead with today\\'s shoots in time order, then flag anything needing attention (unconfirmed, unpaid, new leads). Direct, no fluff.' }, { role: 'user', content: JSON.stringify($json) } ] }) }}",
+        "workflowId": {
+          "__rl": true,
+          "value": "creallm",
+          "mode": "id",
+          "cachedResultName": "CREA — LLM Call (atomic)"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "messages": "={{ [ { role: 'system', content: 'You are CREA, a concise assistant for a real estate videographer. Write a 4-6 line WhatsApp morning briefing. Plain text, no markdown. Lead with today\\'s shoots in time order, then flag anything needing attention (unconfirmed, unpaid, new leads). End with the SYSTEM line only if it is not \\'CREA healthy\\'. Direct, no fluff.' }, { role: 'user', content: JSON.stringify($json) } ] }}",
+            "json": "={{ false }}"
+          },
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
         "options": {
-          "timeout": 30000
+          "waitForSubWorkflow": true
         }
       },
-      "id": "llm",
-      "name": "Compose (OmniRoute)",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
+      "id": "compllm",
+      "name": "Compose (LLM)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
       "position": [
         1060,
         320
       ],
-      "onError": "continueErrorOutput",
-      "retryOnFail": true,
-      "maxTries": 2
+      "onError": "continueRegularOutput"
     },
     {
       "parameters": {
-        "jsCode": "const r = items[0].json || {};\nlet text = r.choices?.[0]?.message?.content || r.message?.content || r.content || '';\nif (!text) {\n  const c = $node['Merge Context'].json;\n  text = `Morning. ${c.counts.shootsToday} shoot(s) today.` + (c.counts.unpaid ? ` ${c.counts.unpaid} unpaid.` : '') + (c.counts.leads ? ` ${c.counts.leads} new lead(s).` : '');\n}\nreturn [{ json: { to: '{{CREA_OWNER_WA}}', text: String(text).trim() } }];"
+        "jsCode": "const r = items[0].json || {};\nconst ctx = $node['Merge Context'].json || {};\nlet text = '';\nif (r.ok && r.content) text = String(r.content).trim();\nif (!text) {\n  const s = (ctx.shoots || []);\n  text = s.length ? ('Morning. Today: ' + s.map(x => x.time + ' ' + (x.client||'') + (x.addr ? ' @ ' + x.addr : '')).join('; ') + '.') : 'Morning. No shoots booked today.';\n  if (ctx.unpaid) text += ' ' + ctx.unpaid + ' unpaid.';\n  if (ctx.leads) text += ' ' + ctx.leads + ' lead(s) to chase.';\n}\nif (ctx.systemLine && ctx.systemLine !== 'CREA healthy' && !text.includes(ctx.systemLine)) text += '\\n\\u26a0\\ufe0f ' + ctx.systemLine;\nreturn [{ json: { to: '{{CREA_OWNER_WA}}', text: text.slice(0, 1400) } }];"
       },
       "id": "extract",
       "name": "Extract Text",
@@ -187,6 +195,24 @@
         320
       ],
       "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ '{{STATE_STORE_URL}}?key=_selfcheck' }}",
+        "options": {
+          "timeout": 8000
+        }
+      },
+      "id": "health",
+      "name": "Health Snapshot",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        380,
+        500
+      ],
+      "onError": "continueRegularOutput"
     }
   ],
   "connections": {
@@ -205,7 +231,7 @@
       "main": [
         [
           {
-            "node": "Today's Shoots",
+            "node": "Health Snapshot",
             "type": "main",
             "index": 0
           }
@@ -238,14 +264,14 @@
       "main": [
         [
           {
-            "node": "Compose (OmniRoute)",
+            "node": "Compose (LLM)",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Compose (OmniRoute)": {
+    "Compose (LLM)": {
       "main": [
         [
           {
@@ -261,6 +287,17 @@
         [
           {
             "node": "Send Briefing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Health Snapshot": {
+      "main": [
+        [
+          {
+            "node": "Today's Shoots",
             "type": "main",
             "index": 0
           }

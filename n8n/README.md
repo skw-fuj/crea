@@ -1,9 +1,9 @@
-# CREA v2 — n8n Hands Layer
+# CREA v3 — n8n Hands Layer
 
 A **WhatsApp AI booking assistant** plus the shoot-ops automations (Acuity intake, shoot
 confirmations, chase, card pipeline, invoicing, morning briefing, listing leads).
 
-Verified end-to-end against a live model on n8n 2.30.7 — see `TEST-REPORT.md`.
+Self-healing and injection-hardened. Verified end-to-end against a live model on n8n 2.30.7, including the failure and attack cases — see `TEST-REPORT.md` and `COUNTERMEASURES.md`.
 
 ---
 
@@ -59,11 +59,12 @@ stores everything as plain files under `CREA_VAULT_DIR`.
 |---|---|
 | `INSTALL.md` | the runbook — start here |
 | `deploy/docker-compose.yml` · `go-live.sh` · `fill-config.sh` | the whole stack + one-command deploy |
-| `workflows/` | 12 workflows (table in `SETUP.md`) |
+| `workflows/` | 14 workflows (table in `SETUP.md`) |
 | `vault-api/server.js` | memory + job store + knowledge + availability + conversation state — one zero-dep service |
 | `knowledge/crea-knowledge.md` | what the assistant answers from. Ships usable; put prices in one table. `EXAMPLE-filled.md` shows a done one. |
 | `config.example.env` | every account/key, each marked REQUIRED/optional |
 | `HANDOVER.md` · `INSTALL.md` · `OPERATIONS.md` | cover note · one-time setup · day-2: changes, updates, features, backup, recovery |
+| `COUNTERMEASURES.md` | every failure mode + attack → detection → automatic response → manual fallback |
 | `SETUP.md` · `DATA-AND-BACKUP.md` · `TEST-REPORT.md` | how it fits together · full storage/sync guide · verification |
 | `facet-template/` | the same shape generalised for any other assistant — `NEW-FACET.md` |
 | `test/` | `mock-services.js` + `demo.sh` — reproduce the verification run offline |
@@ -79,6 +80,9 @@ stores everything as plain files under `CREA_VAULT_DIR`.
 - The assistant answers **only** from `knowledge/crea-knowledge.md` and never invents a price, a time, or a policy.
 - Money and outbound publishes are human-gated (invoices draft only; card pipeline waits for the owner's OK).
 - No public ingress: WhatsApp is same-machine via WAHA, Acuity is polled, everything else is outbound.
+- **Self-healing:** LLM circuit breaker + fallback endpoint, Docker healthchecks, a host watchdog.
+- **Hardened:** injection-resistant prompt + a deterministic reply guard, rate limiting, a blocklist.
+- **Observable:** health endpoint + dashboard, daily self-check, incident log, briefing health line.
 
 ## Why this beats a keyword bot
 

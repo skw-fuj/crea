@@ -1,34 +1,25 @@
-CREA v2  —  n8n Hands Layer
-2.0.0 · 2026-09-09
+CREA v3  —  n8n Hands Layer
+3.0.0 · 2026-09-09
 
-A standalone, client-owned automation pack: a WhatsApp AI booking assistant plus the
-shoot-ops automations (Acuity intake, confirmations, chase, card pipeline, invoicing,
-morning briefing, listing leads).
+A standalone, self-healing WhatsApp AI booking assistant + shoot-ops automations, run by
+the owner on their own Mac and their own accounts.
 
-Install:  INSTALL.md      (one-time setup, ~1 hour, mostly account signups + downloads)
-Operate:  OPERATIONS.md   (changes, updates, features, backup, recovery — day two onward)
-Deploy:  ./go-live.sh (Docker Compose — n8n + WAHA + vault-api, one command)
+Install:  INSTALL.md         (one-time setup, ~1 hour — mostly account signups + downloads)
+Operate:  OPERATIONS.md      (changes, updates, features, backup, recovery — day two onward)
+Resilience & security:  COUNTERMEASURES.md
+Deploy:   ./go-live.sh       (Docker Compose — n8n + WAHA + vault-api, one command)
 
-What v2 is
-- Runs entirely under the buyer's own accounts and their own Mac. No shared services, no
-  public URL, no tunnel. WhatsApp reaches n8n on a private Docker network; Acuity is polled
-  outbound every 10 minutes.
-- The conversation state store and alert sink are folded into vault-api; the pack ships its
-  own error workflow (crea-00).
-- CREA_VAULT_DIR points booking storage at the buyer's Obsidian vault so Obsidian Sync backs
-  it up and puts it on their phone. See DATA-AND-BACKUP.md.
-- One command brings the whole stack up, imports every workflow, creates the credentials and
-  activates everything. The only manual step is scanning the WhatsApp QR once.
+What v3 adds over v2
+- Resilience: an LLM circuit breaker + optional second endpoint (crea-llm), Docker
+  healthchecks, and a host watchdog (launchd) that restarts a down/wedged container,
+  re-links a dropped WhatsApp session, prunes disk, and pages the owner for what it can't fix.
+- Security: an injection-hardened prompt PLUS a deterministic reply guard on every message
+  (strips an invented price, softens a booking confirmation, blocks prompt leakage);
+  per-sender rate limiting; a blocklist; input size caps; group/status/media filtered out.
+- Observability: a health endpoint + dashboard (localhost:5692/status.html), a richer
+  ./go-live.sh --status, a daily self-check that pages on real problems (deduped), a
+  system-health line in the morning briefing, deduped incident logging.
+- Backup/restore built in: ./go-live.sh --backup / --restore / --export.
 
-Verified 2026-09-09 against a live model on n8n 2.30.7: answered from the knowledge file
-($450 quoted verbatim, nothing invented), checked availability without confirming a slot,
-captured the shoot brief across turns, handed the owner a quote-ready enquiry, wrote the lead
-note; multi-turn routing holds under fast consecutive messages; the Acuity poller ingests new
-bookings and dedupes on a watermark; LLM-down falls through to the deterministic qualifier;
-card-pipeline human gate and the error handler reach their designed end.
-
-Not fully verified on the build machine: the Docker Compose bring-up itself (the build Mac
-ran out of disk). Confirmed: `docker compose config` resolves; go-live.sh's preflight, key
-generation, workflow fill and clean-env steps all run; the WhatsApp-gateway image is
-amd64-only on its default tag, so go-live.sh now picks `devlikeapro/waha:noweb` /
-`:noweb-arm` by CPU architecture. `./go-live.sh --test` is the on-site acceptance check.
+14 workflows. Verified end to end against a live model on n8n 2.30.7 — see TEST-REPORT.md,
+including the failure and attack cases.

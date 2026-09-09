@@ -33,7 +33,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const b = items[0].json.body || items[0].json;\nif (b.event && b.event !== 'message') return [];\nconst p = b.payload || b;\nif (p.fromMe === true) return [];\nconst type = p.type || 'chat';\nconst from = String(p.from || '').replace('@c.us','');\nif (!from) throw new Error('Inbound missing sender');\nconst text = (p.body || '').trim();\n// the account this message was sent TO = the number CREA runs on (used to tell whether\n// CREA is on the owner's own number)\nconst toAcct = String(p.to || p.me || '').replace(/[^0-9]/g, '');\nreturn [{ json: { msgId: p.id || null, from, text, type, toAcct, receivedAt: new Date().toISOString() } }];"
+        "jsCode": "const b = items[0].json.body || items[0].json;\nif (b.event && b.event !== 'message') return [];\nconst p = b.payload || b;\nif (p.fromMe === true) return [];              // our own / the owner's outgoing message\nconst raw = String(p.from || '');\nif (/@g\\.us|@broadcast|status@/i.test(raw)) return [];   // groups + status updates: not booking DMs\nconst from = raw.replace(/@.*/, '').replace(/[^0-9]/g, '');\nif (!from) return [];                          // unparseable sender: drop, don't error\nconst blocked = ('{{CREA_BLOCKLIST}}'.match(/\\d{5,}/g) || []);\nif (blocked.includes(from)) return [];         // blocklist\nconst type = p.type || 'chat';\nlet text = String(p.body || p.caption || p.text || '').replace(/\\u0000/g, '').trim().slice(0, 2000);\nif (!text) text = type === 'chat' ? '' : ('[' + type + ' message \\u2014 not readable by the assistant]');\nif (!text) return [];                          // empty text message: nothing to do\n// account this was sent TO = the number CREA runs on (tells whether CREA is on the owner's own number)\nconst toAcct = String(p.to || p.me || (b.me && b.me.id) || '').replace(/@.*/, '').replace(/[^0-9]/g, '');\nreturn [{ json: { msgId: p.id || p.messageId || (p.key && p.key.id) || null, from, text, type, toAcct, receivedAt: new Date().toISOString() } }];"
       },
       "id": "parse",
       "name": "Parse & Guard",
@@ -65,7 +65,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const inc = $node['Parse & Guard'].json;\nconst stored = items[0].json || {};\n// dedupe: same message id already processed\nif (inc.msgId && stored.lastMsgId === inc.msgId) return [];\n\n// once a lead is handed to the owner, the bot stays quiet on that chat for 3 days\n// so the owner can deal with the customer directly (matters most on a shared number)\nconst daysSinceHuman = stored.humanSince ? (Date.now() - Date.parse(stored.humanSince)) / 864e5 : 999;\nconst humanHandled = stored.mode === 'human' && daysSinceHuman < 3;\n\nconst activeBooking = !humanHandled && ((!!stored.stage && stored.stage !== 'close') || stored.mode === 'ai' || (Array.isArray(stored.transcript) && stored.transcript.length > 0 && !stored.booking_ready));\nconst t = (inc.text || '').toLowerCase();\nconst bookingWords = ['shoot','photo','photos','video','listing','book','booking','quote','drone','tour','floor plan','floorplan','twilight'];\nconst looksBooking = !humanHandled && bookingWords.some(w => t.includes(w));\nconst target = (activeBooking || looksBooking) ? 'booking' : 'other';\n\n// on a shared number the owner already sees every incoming message in their own WhatsApp,\n// so there is nothing useful to relay. Config flag wins; else infer from the account the\n// message was sent to vs CREA_OWNER_WA.\nconst flag = String('{{CREA_SHARED_NUMBER}}').toLowerCase();\nconst ownerDigits = String('{{CREA_OWNER_WA}}').replace(/[^0-9]/g, '');\nconst toAcct = String(inc.toAcct || '');\nconst inferShared = !!(toAcct && ownerDigits && (toAcct === ownerDigits || toAcct.endsWith(ownerDigits) || ownerDigits.endsWith(toAcct)));\nconst sharedNumber = flag === 'true' ? true : (flag === 'false' ? false : inferShared);\nreturn [{ json: { ...inc, target, humanHandled, relayToOwner: !sharedNumber, priorStage: stored.stage || null } }];"
+        "jsCode": "const inc = $node['Parse & Guard'].json;\nconst stored = items[0].json || {};\nconst now = Date.now();\n// dedupe: same message id, or the exact same text within 10s (engines without stable ids)\nif (inc.msgId && stored.lastMsgId === inc.msgId) return [];\nif (inc.text && stored.lastText === inc.text && stored.lastInboundAt && (now - Date.parse(stored.lastInboundAt) < 10000)) return [];\n\n// rate limit: keep the last 60s of inbound times for this sender\nconst RATE = Math.max(3, parseInt('{{CREA_RATE_LIMIT_PER_MIN}}', 10) || 12);\nconst msgTimes = (Array.isArray(stored.msgTimes) ? stored.msgTimes : []).filter(x => now - x < 60000).concat(now).slice(-40);\nconst flooding = msgTimes.length > RATE;\n\n// once a lead is handed to the owner, the bot stays quiet on that chat for 3 days\nconst daysSinceHuman = stored.humanSince ? (now - Date.parse(stored.humanSince)) / 864e5 : 999;\nconst humanHandled = stored.mode === 'human' && daysSinceHuman < 3;\n\nconst activeBooking = !humanHandled && !flooding && ((!!stored.stage && stored.stage !== 'close') || stored.mode === 'ai' || (Array.isArray(stored.transcript) && stored.transcript.length > 0 && !stored.booking_ready));\nconst t = (inc.text || '').toLowerCase();\nconst bookingWords = ['shoot','photo','photos','video','listing','book','booking','quote','drone','tour','floor plan','floorplan','twilight'];\nconst looksBooking = !humanHandled && !flooding && bookingWords.some(w => t.includes(w));\nlet target = (activeBooking || looksBooking) ? 'booking' : 'other';\n// if the assistant is mid-reply on this chat, don't start a second turn — queue the text\nconst busy = stored.assistantBusyUntil && now < Date.parse(stored.assistantBusyUntil);\nif (target === 'booking' && busy) target = 'queue';\n\n// on a shared number the owner already sees every incoming message. Config flag wins; else\n// infer from the account the message was sent to vs CREA_OWNER_WA.\nconst flag = String('{{CREA_SHARED_NUMBER}}').toLowerCase();\nconst ownerDigits = String('{{CREA_OWNER_WA}}').replace(/[^0-9]/g, '');\nconst toAcct = String(inc.toAcct || '');\nconst inferShared = !!(toAcct && ownerDigits && (toAcct === ownerDigits || toAcct.endsWith(ownerDigits) || ownerDigits.endsWith(toAcct)));\nconst sharedNumber = flag === 'true' ? true : (flag === 'false' ? false : inferShared);\n\nconst queuedText = String(stored.queuedText || '');\nreturn [{ json: { ...inc, target, flooding, msgTimes, humanHandled, queuedText, relayToOwner: !sharedNumber && !flooding, priorStage: stored.stage || null } }];"
       },
       "id": "classify",
       "name": "Classify & Dedupe",
@@ -97,6 +97,24 @@
                 ]
               },
               "outputKey": "booking"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.target }}",
+                    "rightValue": "queue",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "outputKey": "queue"
             }
           ]
         },
@@ -169,7 +187,7 @@
         "url": "{{CREA_VAULT_API_URL}}/inbox",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ channel: 'whatsapp', from: $json.from, text: $json.text, type: $json.type, receivedAt: $json.receivedAt }) }}",
+        "jsonBody": "={{ JSON.stringify({ channel: 'whatsapp', from: $json.from, text: $json.text, type: $json.type, flood: !!$json.flooding, receivedAt: $json.receivedAt }) }}",
         "options": {
           "timeout": 10000
         }
@@ -189,13 +207,20 @@
     {
       "parameters": {
         "conditions": {
-          "options": { "caseSensitive": true, "typeValidation": "loose" },
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "loose"
+          },
           "combinator": "and",
           "conditions": [
             {
               "leftValue": "={{ $node['Classify & Dedupe'].json.relayToOwner }}",
               "rightValue": true,
-              "operator": { "type": "boolean", "operation": "true", "singleValue": true }
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
             }
           ]
         },
@@ -266,7 +291,7 @@
         "url": "{{STATE_STORE_URL}}",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ key: $node['Classify & Dedupe'].json.from, lastMsgId: $node['Classify & Dedupe'].json.msgId, lastInboundAt: $node['Classify & Dedupe'].json.receivedAt }) }}",
+        "jsonBody": "={{ JSON.stringify({ key: $node['Classify & Dedupe'].json.from, lastMsgId: $node['Classify & Dedupe'].json.msgId, lastText: ($node['Classify & Dedupe'].json.text || '').slice(0, 200), lastInboundAt: $node['Classify & Dedupe'].json.receivedAt, msgTimes: $node['Classify & Dedupe'].json.msgTimes }) }}",
         "options": {
           "timeout": 10000
         }
@@ -299,6 +324,79 @@
       "position": [
         1220,
         120
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "loose"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.flooding }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "floodif",
+      "name": "Flooding?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1000,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{CREA_ALERT_WEBHOOK_URL}}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ workflow: 'crea-01', node: 'rate-limit', severity: 'warn', message: 'message flood from ' + $node['Classify & Dedupe'].json.from + ' — replies paused for that sender for ~1 min' }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "floodalert",
+      "name": "Flood Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1220,
+        560
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{STATE_STORE_URL}}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ key: $node['Classify & Dedupe'].json.from, _appendQueue: $node['Classify & Dedupe'].json.text }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "queuemsg",
+      "name": "Queue Message",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1220,
+        -40
       ],
       "onError": "continueRegularOutput"
     }
@@ -344,6 +442,22 @@
             "node": "Route by Target",
             "type": "main",
             "index": 0
+          },
+          {
+            "node": "Flooding?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Flooding?": {
+      "main": [
+        [
+          {
+            "node": "Flood Alert",
+            "type": "main",
+            "index": 0
           }
         ]
       ]
@@ -358,6 +472,13 @@
           },
           {
             "node": "Mark Seen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Queue Message",
             "type": "main",
             "index": 0
           }

@@ -1,16 +1,17 @@
-# CREA v2 — the whole stack, one file.
+# CREA v3 — the whole stack, one file.
 #
 #   cd ..
 #   ./go-live.sh                  # fills config, brings this up, imports + activates everything
 #
-# Services (all restart:unless-stopped, so they survive a reboot once Docker Desktop is set
-# to "Start Docker Desktop when you sign in"):
+# Services (all restart:unless-stopped + a healthcheck, so they survive a reboot and a hang
+# once Docker Desktop is set to "Start Docker Desktop when you sign in"):
 #   n8n        the automation engine + editor UI          http://localhost:5678
 #   waha       WhatsApp gateway (scan the QR once)         http://localhost:3001
-#   vault-api  CREA's memory: knowledge, state, jobs...    internal only (:5692)
+#   vault-api  CREA's memory + health: knowledge, state…   internal only (:5692, /status.html)
 #
 # No public URL / tunnel is needed: WhatsApp talks to n8n on the internal Docker network,
 # and Acuity is polled outbound every 10 min by crea-03, not via a webhook.
+# The host watchdog (./go-live.sh installs it) restarts anything the healthcheck marks unhealthy.
 
 name: crea
 
@@ -33,6 +34,11 @@ services:
       - N8N_PERSONALIZATION_ENABLED=false
       - N8N_SECURE_COOKIE=false
       - N8N_RUNNERS_ENABLED=true
+      - N8N_HIRING_BANNER_ENABLED=false
+      # keep the SQLite db from growing without bound
+      - EXECUTIONS_DATA_PRUNE=true
+      - EXECUTIONS_DATA_MAX_AGE=336
+      - EXECUTIONS_DATA_PRUNE_MAX_COUNT=20000
       # optional editor login — set CREA_N8N_USER + CREA_N8N_PASSWORD in config.env
       - N8N_BASIC_AUTH_ACTIVE=${CREA_N8N_AUTH_ACTIVE:-false}
       - N8N_BASIC_AUTH_USER=${CREA_N8N_USER:-}
@@ -42,7 +48,14 @@ services:
       - ./_filled:/workflows:ro
       - ./_export:/export
     depends_on:
-      - vault-api
+      vault-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:5678/healthz || exit 1"]
+      interval: 30s
+      timeout: 8s
+      retries: 4
+      start_period: 60s
 
   waha:
     # go-live.sh picks the image + engine by CPU architecture (WAHA ships separate
@@ -61,6 +74,9 @@ services:
       - TZ=${CREA_TIMEZONE:-Australia/Sydney}
     volumes:
       - waha_sessions:/app/.sessions
+    # no container healthcheck for WAHA — "port up" says nothing about whether WhatsApp is
+    # actually linked. The host watchdog checks the real signal (session status == WORKING)
+    # and re-links a dropped session.
 
   vault-api:
     image: node:20-alpine
@@ -72,15 +88,26 @@ services:
       - VAULT_API_PORT=5692
       - VAULT_DIR=/vault
       - KNOWLEDGE_FILE=/knowledge/crea-knowledge.md
+      - BACKUP_DIR=/backups
       - ACUITY_USER_ID=${CREA_ACUITY_USER_ID:-}
       - ACUITY_API_KEY=${CREA_ACUITY_API_KEY:-}
       - ACUITY_APPT_TYPE_ID=${CREA_ACUITY_APPT_TYPE_ID:-}
+      - LLM_CIRCUIT_FAILS=${LLM_CIRCUIT_FAILS:-4}
+      - LLM_CIRCUIT_COOLDOWN_S=${LLM_CIRCUIT_COOLDOWN_S:-300}
     volumes:
       - ../vault-api:/app:ro
       - ../knowledge:/knowledge:ro
+      - ../backups:/backups:ro
       - ${CREA_VAULT_DIR_ABS:-crea_vault}:/vault
-    expose:
-      - "5692"
+    # bound to localhost only — for the health dashboard at http://localhost:5692/status.html
+    ports:
+      - "127.0.0.1:${CREA_VAULT_PORT:-5692}:5692"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:5692/ping || exit 1"]
+      interval: 30s
+      timeout: 6s
+      retries: 4
+      start_period: 10s
 
 volumes:
   n8n_data:

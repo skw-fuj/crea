@@ -1,0 +1,415 @@
+{
+  "id": "creallm",
+  "name": "CREA — LLM Call (atomic)",
+  "meta": {
+    "family": "cross-cutting",
+    "mode": "atomic",
+    "note": "The ONE place CREA calls a language model. Input: { messages: [...], json: true|false }. Checks the shared circuit breaker (vault-api /llm/state); if the model has been failing it returns {ok:false} immediately so the caller falls back without waiting. Tries the primary endpoint, then CREA_OMNIROUTE_URL_2 if configured, then reports the outcome to the breaker. Output: { ok, content } or { ok:false, reason }.",
+    "steps": [
+      "check_circuit",
+      "call_primary",
+      "maybe_call_fallback",
+      "report_outcome"
+    ]
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "workflowInputs",
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "messages",
+              "type": "array"
+            },
+            {
+              "name": "json",
+              "type": "boolean"
+            }
+          ]
+        }
+      },
+      "id": "trigger",
+      "name": "When called",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        160,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "{{CREA_VAULT_API_URL}}/llm/state",
+        "options": {
+          "timeout": 8000
+        }
+      },
+      "id": "circ",
+      "name": "Circuit State",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        360,
+        320
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "loose"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.open }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "isopen",
+      "name": "Circuit open?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        560,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { ok: false, reason: 'circuit-open' } }];"
+      },
+      "id": "skip",
+      "name": "Skip (circuit open)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        780,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{CREA_OMNIROUTE_URL}}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify(Object.assign({ model: '{{CREA_LLM_MODEL}}', temperature: 0.3, messages: $node['When called'].json.messages }, $node['When called'].json.json ? { response_format: { type: 'json_object' } } : {})) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "primary",
+      "name": "LLM primary",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        780,
+        380
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 1200
+    },
+    {
+      "parameters": {
+        "jsCode": "const r = items[0].json || {};\nconst content = (r.choices && r.choices[0] && r.choices[0].message && r.choices[0].message.content) || r.content || (r.message && r.message.content) || '';\nif (content && String(content).trim()) return [{ json: { ok: true, content: String(content) } }];\nreturn [{ json: { ok: false, reason: 'primary-empty' } }];"
+      },
+      "id": "pparse",
+      "name": "Primary result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        980,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "loose"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.ok }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "pok",
+      "name": "Primary ok?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1180,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "loose"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ '{{CREA_OMNIROUTE_URL_2}}'.trim() !== '{{CREA_OMNIROUTE_URL}}'.trim() && '{{CREA_OMNIROUTE_URL_2}}'.startsWith('http') }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "hasfb",
+      "name": "Second endpoint set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1360,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{CREA_OMNIROUTE_URL_2}}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify(Object.assign({ model: '{{CREA_LLM_MODEL_2}}', temperature: 0.3, messages: $node['When called'].json.messages }, $node['When called'].json.json ? { response_format: { type: 'json_object' } } : {})) }}",
+        "options": {
+          "timeout": 25000
+        }
+      },
+      "id": "fb",
+      "name": "LLM fallback",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1560,
+        460
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 1200
+    },
+    {
+      "parameters": {
+        "jsCode": "if (($node['Primary result'].json || {}).ok) return [{ json: $node['Primary result'].json }];\nconst r = items[0].json || {};\nconst content = (r.choices && r.choices[0] && r.choices[0].message && r.choices[0].message.content) || r.content || '';\nif (content && String(content).trim()) return [{ json: { ok: true, content: String(content), viaFallback: true } }];\nreturn [{ json: { ok: false, reason: 'all-endpoints-failed' } }];"
+      },
+      "id": "fparse",
+      "name": "Final result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1760,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{CREA_VAULT_API_URL}}/llm/report",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ ok: $json.ok === true, error: $json.reason || null }) }}",
+        "options": {
+          "timeout": 8000
+        }
+      },
+      "id": "report",
+      "name": "Report to breaker",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1960,
+        380
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: $node['Final result'].json }];"
+      },
+      "id": "deliver",
+      "name": "Deliver",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2160,
+        380
+      ]
+    }
+  ],
+  "connections": {
+    "When called": {
+      "main": [
+        [
+          {
+            "node": "Circuit State",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Circuit State": {
+      "main": [
+        [
+          {
+            "node": "Circuit open?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Circuit open?": {
+      "main": [
+        [
+          {
+            "node": "Skip (circuit open)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "LLM primary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LLM primary": {
+      "main": [
+        [
+          {
+            "node": "Primary result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Primary result": {
+      "main": [
+        [
+          {
+            "node": "Primary ok?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Primary ok?": {
+      "main": [
+        [
+          {
+            "node": "Final result",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Second endpoint set?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Second endpoint set?": {
+      "main": [
+        [
+          {
+            "node": "LLM fallback",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Final result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LLM fallback": {
+      "main": [
+        [
+          {
+            "node": "Final result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Final result": {
+      "main": [
+        [
+          {
+            "node": "Report to breaker",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Report to breaker": {
+      "main": [
+        [
+          {
+            "node": "Deliver",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "creaerrorhandler"
+  }
+}

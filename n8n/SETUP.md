@@ -1,4 +1,4 @@
-# CREA v2 — n8n Hands Layer · how it fits together
+# CREA v3 — n8n Hands Layer · how it fits together
 
 **To install:** follow `INSTALL.md`. This file is the reference for what the pieces are and
 how they connect — read it once you're up, or when you want to change something.
@@ -15,12 +15,12 @@ Built and verified end-to-end against n8n **2.30.7** and a live model — see `T
 |---|---|---|
 | `crea-n8n` | the workflow engine + editor | `http://localhost:5678` |
 | `crea-waha` | the WhatsApp gateway (scan the QR once) | `http://localhost:3001` |
-| `crea-vault-api` | CREA's memory — knowledge, conversation state, job/lead/inbox notes | internal only (`:5692`) |
+| `crea-vault-api` | CREA's memory + **health**: knowledge, state, jobs, leads, the LLM circuit breaker, `/status.html` | `http://localhost:5692` (localhost only) |
 
 They share a private Docker network, so **no public URL or tunnel is needed**. WhatsApp
 messages arrive through WAHA; Acuity is polled outbound every 10 minutes; the LLM and other
 APIs are outbound HTTPS. `restart: unless-stopped` + Docker Desktop "start on login" means the
-whole thing survives a reboot, and WAHA re-links from its saved session.
+whole thing survives a reboot, and WAHA re-links from its saved session. A **host watchdog** (launchd, installed by `go-live.sh`) restarts anything wedged, re-links a dropped session, and pages the owner for what it can't fix — see `COUNTERMEASURES.md`.
 
 ---
 
@@ -28,17 +28,19 @@ whole thing survives a reboot, and WAHA re-links from its saved session.
 
 | Workflow | Trigger | Purpose |
 |---|---|---|
-| `crea-00-error-handler` | any workflow fails | normalises the failure, records it to the vault `/alert`, pings the owner |
+| `crea-00-error-handler` | any workflow fails | normalises the failure, records it to the vault `/alert` (deduped: 1 identical alert/hour) |
 | `crea-wa-send` | called by the others | the one place WhatsApp is sent — swap gateways here only |
-| `crea-01-whatsapp-inbound` | WAHA message webhook | dedupe, mark an active booking chat, route it to the assistant; everything else → vault inbox + a one-line owner ping |
-| `crea-02b-ai-assistant` | booking chat (default) | answers from the knowledge base, checks availability read-only, captures the shoot brief, hands the owner a quote-ready enquiry. **Falls through to `crea-02` if the LLM is unreachable.** |
+| `crea-llm` | called by the assistant + the briefing | the one place a language model is called — circuit breaker + optional second endpoint |
+| `crea-01-whatsapp-inbound` | WAHA message webhook | drops groups/status/blocklisted; rate-limits floods; dedupes; marks an active booking chat and routes to the assistant; everything else → vault inbox (+ owner relay on a separate number) |
+| `crea-02b-ai-assistant` | booking chat (default) | answers from the knowledge base, checks availability read-only, captures the brief, hands the owner a quote-ready enquiry. Every reply passes **Guard Reply** (strips invented prices, softens confirmations, blocks prompt leaks). Falls through to `crea-02` when `crea-llm` reports the model is down. |
 | `crea-02-booking-agent` | AI fallback / opt-in | fixed 5-question qualifier |
 | `crea-03-acuity-intake` | **polls Acuity every 10 min** (+ a local `crea-acuity-poll` webhook for "run now") | new bookings → vault job note + owner ping. Dedupes on a watermark of processed appointment ids. Google Calendar node present but disabled. |
 | `crea-04-shoot-confirmations` | 17:00 daily | WhatsApp-confirm tomorrow's shoots; record each on the vault `/pending` list |
 | `crea-05-chase-noreply` | 09/12/15 daily | nudge unconfirmed clients (max 2), then tell the owner to call |
 | `crea-06-card-pipeline` | `crea-card` webhook (local) | split footage by capture gap → **human gate** → Higgsfield → notify editor. Drive-folder node disabled. |
 | `crea-07-monday-invoicing` | Mon 09:00 | draft invoices for completed unpaid jobs — **never sends** |
-| `crea-08-morning-briefing` | 06:30 daily | "what to focus on" over WhatsApp |
+| `crea-08-morning-briefing` | 06:30 daily | "what to focus on" over WhatsApp, ending with a system-health line if CREA needs attention |
+| `crea-09-selfcheck` | 06:20 daily + `crea-selfcheck` webhook (the watchdog) | pulls `/health`; pages the owner (deduped) for problems it can't self-heal |
 | `crea-10-apify-leads` | 07:00 daily | new listing leads → digest |
 
 `crea-01` routes booking messages to whatever `CREA_BOOKING_WORKFLOW_ID` names —
@@ -82,7 +84,10 @@ store + knowledge + availability + conversation state, all plain files under `CR
 | `POST /inbox` | crea-01 |
 | `POST /pending` · `GET /pending` · `POST /pending/update` | crea-04, crea-05 |
 | `POST /shoots` · `POST /invoice-draft` | crea-06, crea-07 |
-| `POST /alert` | crea-00 |
+| `POST /alert` | crea-00, crea-01, crea-02b, crea-09 (deduped) |
+| `GET /health` · `GET /status.html` | crea-09, `--status`, the dashboard |
+| `GET /llm/state` · `POST /llm/report` | crea-llm circuit breaker |
+| `GET /kb-facts` | the reply guard (prices present in the knowledge file) |
 
 ---
 

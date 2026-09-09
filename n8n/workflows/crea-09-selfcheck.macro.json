@@ -1,0 +1,298 @@
+{
+  "id": "creaselfcheck",
+  "name": "CREA — Self-Check (Macro)",
+  "meta": {
+    "family": "reliable_ingress",
+    "mode": "macro",
+    "note": "Runs at 06:20 daily and on demand (local webhook crea-selfcheck, used by the host watchdog). Pulls vault-api /health, and if anything critical is wrong — LLM circuit open, disk low, knowledge missing, vault not writable — or alerts have piled up, it messages the owner and POSTs to CREA_ALERT_WEBHOOK_URL. Advisory items (prices not filled, no recent backup) are mentioned but don't page. Always leaves a health snapshot in the vault state (_selfcheck) so the morning briefing can quote it.",
+    "steps": [
+      "trigger",
+      "get_health",
+      "assess",
+      "persist_snapshot",
+      "alert_if_needed"
+    ]
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "20 6 * * *"
+            }
+          ]
+        }
+      },
+      "id": "cron",
+      "name": "Daily 06:20",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        180,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "crea-selfcheck",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "hook",
+      "name": "Run Now (local)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        180,
+        400
+      ],
+      "webhookId": "crea-selfcheck"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "{{CREA_VAULT_API_URL}}/health",
+        "options": {
+          "timeout": 12000
+        }
+      },
+      "id": "health",
+      "name": "Get Health",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        420,
+        320
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 2
+    },
+    {
+      "parameters": {
+        "jsCode": "const h = $node['Get Health'].json || {};\nconst prev = $node['Load Prev'].json || {};\nconst crit = h.critical || {}; const adv = h.advisory || {};\nconst problems = [];\nif (crit.vault_writable === false) problems.push('vault storage is not writable');\nif (crit.knowledge_present === false) problems.push('knowledge file is missing');\nif (crit.llm_circuit_ok === false) problems.push('the assistant model has been failing \\u2014 running the fallback flow');\nif (crit.disk_ok === false) problems.push('disk space is low (' + (h.disk_free_gb ?? '?') + ' GB)');\nif ((h.open_alerts_24h || 0) >= 3) problems.push((h.open_alerts_24h) + ' errors in the last 24h \\u2014 check the alerts folder');\nconst todo = [];\nif (adv.prices_filled === false) todo.push('prices not filled in the knowledge file (assistant defers on price)');\nif (adv.backup_recent === false) todo.push('no backup in 30 days \\u2014 run ./go-live.sh --backup');\nconst healthy = problems.length === 0;\nconst line = healthy ? ('CREA healthy' + (todo.length ? ' \\u00b7 to do: ' + todo.join('; ') : '')) : ('CREA needs attention: ' + problems.join('; '));\n// page only when the problem set changed, or it's been >60 min since the last page\nconst sig = problems.slice().sort().join('|');\nconst prevSig = (prev.problems || []).slice().sort().join('|');\nconst mins = prev.lastPagedAt ? (Date.now() - Date.parse(prev.lastPagedAt)) / 60000 : 999;\nconst shouldPage = problems.length > 0 && (sig !== prevSig || mins > 60);\nreturn [{ json: { healthy, problems, todo, line, shouldPage, checkedAt: new Date().toISOString(), lastPagedAt: shouldPage ? new Date().toISOString() : (prev.lastPagedAt || null) } }];"
+      },
+      "id": "assess",
+      "name": "Assess",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        640,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{STATE_STORE_URL}}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ key: '_selfcheck', healthy: $json.healthy, line: $json.line, problems: $json.problems, todo: $json.todo, checkedAt: $json.checkedAt, lastPagedAt: $json.lastPagedAt }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "snap",
+      "name": "Persist Snapshot",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        860,
+        320
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "loose"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $node['Assess'].json.shouldPage }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "needalert",
+      "name": "Problem?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1080,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{CREA_ALERT_WEBHOOK_URL}}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ workflow: 'crea-09', node: 'self-check', severity: 'error', message: $node['Assess'].json.line }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "webhookalert",
+      "name": "Alert Webhook",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1300,
+        240
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "creawasend",
+          "mode": "id",
+          "cachedResultName": "CREA — WA Send (WAHA atomic)"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "to": "{{CREA_OWNER_WA}}",
+            "text": "={{ '\\u26a0\\ufe0f ' + $node['Assess'].json.line }}"
+          },
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "id": "waalert",
+      "name": "Alert Owner (WhatsApp)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1300,
+        400
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ '{{STATE_STORE_URL}}?key=_selfcheck' }}",
+        "options": {
+          "timeout": 8000
+        }
+      },
+      "id": "loadprev",
+      "name": "Load Prev",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        420,
+        200
+      ],
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Daily 06:20": {
+      "main": [
+        [
+          {
+            "node": "Get Health",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Now (local)": {
+      "main": [
+        [
+          {
+            "node": "Get Health",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Health": {
+      "main": [
+        [
+          {
+            "node": "Load Prev",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assess": {
+      "main": [
+        [
+          {
+            "node": "Persist Snapshot",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Persist Snapshot": {
+      "main": [
+        [
+          {
+            "node": "Problem?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Problem?": {
+      "main": [
+        [
+          {
+            "node": "Alert Webhook",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Alert Owner (WhatsApp)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Prev": {
+      "main": [
+        [
+          {
+            "node": "Assess",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "creaerrorhandler"
+  }
+}

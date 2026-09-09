@@ -1,4 +1,4 @@
-# CREA v2 — operating & maintaining it
+# CREA v3 — operating & maintaining it
 
 Everything you'll do after it's running: change prices and wording, add or drop features,
 take updates, keep it backed up, recover from trouble. `INSTALL.md` is the one-time setup;
@@ -72,8 +72,9 @@ inside n8n.
 
 ### Changing a schedule (briefing time, confirmation time, chase times)
 These are set inside the workflows, not `config.env`. See §4 (edit in the n8n editor).
-Current defaults: morning briefing 06:30, shoot confirmations 17:00, chase-ups 09:00/12:00/15:00,
-Monday invoicing 09:00, listing leads 07:00, Acuity poll every 10 min.
+Current defaults: self-check 06:20, morning briefing 06:30, listing leads 07:00, chase-ups
+09:00/12:00/15:00, Monday invoicing 09:00, shoot confirmations 17:00, Acuity poll every 10 min,
+host watchdog every 5 min.
 
 ---
 
@@ -181,8 +182,8 @@ Anthropic via a proxy, a local model via Ollama's OpenAI shim, OpenRouter.
 - **Delete it entirely:** remove the file from `workflows/`, remove its tokens from
   `config.example.env`, then in the editor delete the workflow (trash icon), then `./go-live.sh`.
 
-**Never remove:** `crea-00`, `crea-wa-send`, `crea-01`, `crea-02b`, `crea-02`. That's the
-core loop and the safety net.
+**Never remove:** `crea-00`, `crea-wa-send`, `crea-llm`, `crea-01`, `crea-02b`, `crea-02`,
+`crea-09`. That's the core loop, the model seam, and the safety net.
 
 ---
 
@@ -253,6 +254,12 @@ to run one and move the file off the Mac.
 
 ## 9. Monitoring — is it healthy?
 
+**The dashboard:** open **http://localhost:5692/status.html** — critical checks, today's activity, LLM circuit, disk, last backup. Or `./go-live.sh --status` for the same in the terminal.
+
+**`./go-live.sh --selfcheck`** runs the health check now and pages you (WhatsApp + your alert webhook) if something's wrong.
+
+**The watchdog** (installed by `go-live.sh`, `./go-live.sh --watchdog` to reinstall) checks the stack every few minutes and fixes what it can. `./go-live.sh --watchdog remove` to stop it.
+
 | Check | How | Healthy looks like |
 |---|---|---|
 | Everything running | `./go-live.sh --status` | n8n reachable, WhatsApp session `WORKING` |
@@ -261,8 +268,7 @@ to run one and move the file off the Mac.
 | What CREA said today | Vault: `leads/`, `inbox/` folders (open in Obsidian) | new `.md` files for new enquiries |
 | Live logs | `./go-live.sh --logs n8n` | steady, no repeating errors (Ctrl-C to stop watching) |
 
-If `crea-00` fires, you also get a WhatsApp alert. It records — it doesn't stop CREA; the
-assistant keeps working while a background job retries.
+Full resilience and security model: **`COUNTERMEASURES.md`** — what breaks, how CREA notices, what it does on its own, and what's left for you.
 
 ---
 
@@ -296,7 +302,8 @@ Recovery time: ~20 minutes plus the Docker image download.
 - **The WhatsApp gateway** is protected by `CREA_WAHA_API_KEY`. Keep it long and random.
 - **Customer data** (names, numbers, addresses) lives in `CREA_VAULT_DIR`. Obsidian Sync is
   end-to-end encrypted. A plain Dropbox/Drive folder is not — fine for most, but know it.
-- **Nothing is exposed to the internet.** No inbound ports, no tunnel. WhatsApp is
+- **The assistant is hardened:** an injection-resistant prompt plus a deterministic `Guard Reply` that strips invented prices, softens booking confirmations, and blocks prompt leaks on *every* message. Per-sender rate limiting; `CREA_BLOCKLIST` for persistent abusers.
+- **Nothing is exposed to the internet.** No inbound ports, no tunnel. (The health dashboard on :5692 is bound to localhost.) WhatsApp is
   same-machine; Acuity and the LLM are outbound calls. Keep it that way unless you have a
   specific reason and know what you're doing.
 - **Updates:** take CREA updates when they come (§8). Docker Desktop updates itself — let it,

@@ -29,6 +29,20 @@ while IFS= read -r line; do
   KEYS+=("$k"); VALS+=("$v")
 done < "$ENV_FILE"
 
+# a blank "X_2" key inherits X's value (e.g. CREA_OMNIROUTE_URL_2 / _MODEL_2 fall back to
+# the primary) so an optional-second-endpoint node still gets a valid value.
+for i in "${!KEYS[@]}"; do
+  case "${KEYS[$i]}" in
+    *_2)
+      if [ -z "${VALS[$i]}" ]; then
+        base="${KEYS[$i]%_2}"
+        for j in "${!KEYS[@]}"; do
+          [ "${KEYS[$j]}" = "$base" ] && VALS[$i]="${VALS[$j]}"
+        done
+      fi ;;
+  esac
+done
+
 missing=0
 for f in "$SRC"/*.json; do
   [ -e "$f" ] || continue

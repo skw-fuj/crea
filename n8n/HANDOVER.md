@@ -1,4 +1,4 @@
-# CREA v2 — handover
+# CREA v3 — handover
 
 Hi Connell — this is CREA's automation layer: a WhatsApp assistant that answers booking
 questions, quotes your prices, checks your calendar, captures the shoot brief, and hands you
@@ -42,6 +42,7 @@ It still can't scan the QR or invent your prices — those stay with you.
 
 ## Support
 - `INSTALL.md` — one-time setup + troubleshooting
+- `COUNTERMEASURES.md` — how CREA handles outages and abuse (nothing to configure — good to skim)
 - `OPERATIONS.md` — everything after that: changing prices/wording, config, updates, new
   features, backups, disaster recovery
 - `DATA-AND-BACKUP.md` — the full Obsidian + storage + sync guide

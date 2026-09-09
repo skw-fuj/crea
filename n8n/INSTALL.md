@@ -1,4 +1,4 @@
-# CREA v2 — install & go live
+# CREA v3 — install & go live
 
 This is the whole runbook. Follow it top to bottom once and CREA is answering WhatsApp,
 capturing shoot briefs, and (if you connect Acuity) running your shoot-ops automations.
@@ -90,7 +90,8 @@ re-running `./go-live.sh`.
    ```
    First run takes ~5 minutes (it downloads the n8n and WhatsApp images). It will:
    check Docker → generate an encryption key → start n8n + WhatsApp gateway + the vault API →
-   import all 12 workflows → create the API credentials → activate everything → restart n8n.
+   import all 14 workflows → create the API credentials → activate everything → restart n8n →
+   install the background watchdog.
    
    It stops at **"WhatsApp pairing"** — that's the one manual step, next.
 
@@ -113,6 +114,8 @@ re-running `./go-live.sh`.
    
    You should get a reply within a few seconds. Give it an address and a date and you'll get a
    **"Quote-ready enquiry"** message on your own WhatsApp.
+
+7. **Bookmark the dashboard:** <http://localhost:5692/status.html> — health at a glance.
 
 ---
 
@@ -211,7 +214,9 @@ removing features, backups, and disaster recovery — is all in **`OPERATIONS.md
 | It never quotes a price | You haven't filled the Price column in `knowledge/crea-knowledge.md` (Part D). |
 | No "Quote-ready enquiry" pings | `CREA_OWNER_WA` must be your real number, digits only, with country code. |
 | Acuity bookings don't appear | Check the User ID / API Key. `crea-03` polls every 10 min, so allow time. `./go-live.sh --logs n8n` and look for `Acuity`. |
-| Everything was working, then stopped after a reboot | Docker Desktop didn't auto-start. Set it in Part A.2, or open it manually, then `./go-live.sh --status`. |
+| Everything was working, then stopped after a reboot | Docker Desktop didn't auto-start. Set it in Part A.2, or open it manually, then `./go-live.sh --status`. The watchdog also brings it back within a few minutes. |
+| Assistant fell back to the 5-question flow for everyone | the LLM circuit opened after repeated failures — check `CREA_OMNIROUTE_KEY` / the provider. It auto-recovers; `./go-live.sh --selfcheck` re-checks. |
+| You keep getting "CREA needs attention" WhatsApps | open `CREA_VAULT_DIR/alerts/` and the dashboard — fix the underlying issue; the alert stops once healthy. |
 | Want to move it to another Mac | Copy the whole folder **including `config.env` and `deploy/.n8n-key`**, install Docker there, `./go-live.sh`, re-scan the QR. |
 
 ---

@@ -24,7 +24,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const e = items[0].json;\nreturn [{ json: {\n  workflow: e.workflow?.name || 'unknown',\n  node: e.execution?.lastNodeExecuted || 'unknown',\n  message: e.execution?.error?.message || e.error?.message || 'unknown error',\n  executionId: e.execution?.id || null,\n  failedAt: new Date().toISOString()\n} }];"
+        "jsCode": "const e = items[0].json;\nconst msg = e.execution?.error?.message || e.error?.message || 'unknown error';\nreturn [{ json: {\n  workflow: e.workflow?.name || 'unknown',\n  node: e.execution?.lastNodeExecuted || 'unknown',\n  message: String(msg).slice(0, 500),\n  severity: 'error',\n  executionId: e.execution?.id || null,\n  failedAt: new Date().toISOString()\n} }];"
       },
       "id": "norm",
       "name": "Normalise Failure",

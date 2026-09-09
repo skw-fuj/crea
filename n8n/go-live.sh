@@ -180,9 +180,31 @@ K="$(cfg CREA_WAHA_API_KEY)"; W="$(WAHA_URL)"
 curl -sf -X POST "$W/api/sessions" -H "X-Api-Key: $K" -H 'content-type: application/json' -d '{"name":"default","start":true}' >/dev/null 2>&1 \
  || curl -sf -X POST "$W/api/sessions/default/start" -H "X-Api-Key: $K" >/dev/null 2>&1 || true
 sleep 2
-STATUS=$(curl -sf -H "X-Api-Key: $K" "$W/api/sessions/default" 2>/dev/null | python3 -c 'import sys,json;print(json.load(sys.stdin).get("status","UNKNOWN"))' 2>/dev/null || echo UNKNOWN)
+SESS=$(curl -sf -H "X-Api-Key: $K" "$W/api/sessions/default" 2>/dev/null || echo '{}')
+STATUS=$(printf '%s' "$SESS" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("status","UNKNOWN"))' 2>/dev/null || echo UNKNOWN)
 if [ "$STATUS" = "WORKING" ]; then
   ok "WhatsApp is paired and connected. Nothing to scan."
+  # is CREA on the owner's own number? persist it so crea-01 stops relaying every message.
+  WANT=$(printf '%s' "$SESS" | OWDIG="$(cfg CREA_OWNER_WA | tr -cd '0-9')" python3 -c '
+import sys,json,re,os
+d=json.load(sys.stdin); m=d.get("me") or {}
+me=re.sub(r"\D","",str(m.get("id") or ""))
+ow=os.environ.get("OWDIG","")
+print("true" if me and ow and (me==ow or me.endswith(ow) or ow.endswith(me)) else "false")' 2>/dev/null || echo "")
+  if [ -n "$WANT" ]; then
+    HAVE=$(cfg CREA_SHARED_NUMBER)
+    if [ "$HAVE" != "$WANT" ]; then
+      if grep -q '^CREA_SHARED_NUMBER=' config.env; then
+        sed -i.bak "s|^CREA_SHARED_NUMBER=.*|CREA_SHARED_NUMBER=$WANT|" config.env && rm -f config.env.bak
+      else printf 'CREA_SHARED_NUMBER=%s\n' "$WANT" >> config.env; fi
+      [ "$WANT" = "true" ] && ok "CREA is on your own number — set CREA_SHARED_NUMBER=true (alerts go to your 'Message Yourself' chat)" \
+                           || ok "CREA is on a separate number — set CREA_SHARED_NUMBER=false"
+      ./fill-config.sh config.env workflows >/dev/null 2>&1 && cp workflows/_filled/*.json "$DEPLOY/_filled/" 2>/dev/null
+      n8n_cli import:workflow --separate --input=/workflows >/dev/null 2>&1 || true
+      compose restart n8n >/dev/null 2>&1 || true
+      wait_http "$(N8N_URL)/healthz" "n8n reloaded with the number setting" 90
+    fi
+  fi
 else
   QR="$DEPLOY/whatsapp-qr.png"
   curl -sf -H "X-Api-Key: $K" "$W/api/default/auth/qr?format=image" -o "$QR" 2>/dev/null || true

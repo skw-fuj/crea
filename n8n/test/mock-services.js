@@ -54,7 +54,9 @@ async function llm(messages) {
       return j.choices?.[0]?.message?.content || null;
     } catch { return null; }
   }
-  return JSON.stringify({ reply: "Thanks — I'll pass this to the team and someone will get back to you with a quote.", brief: {}, booking_ready: false, needs_human: true });
+  // offline canned reply: neutral "still gathering" so the multi-turn path is exercised
+  // without a real model. Set DEMO_LLM_URL/KEY for a real conversation.
+  return JSON.stringify({ reply: "Thanks for reaching out. Could you share the property address and a preferred date?", brief: {}, booking_ready: false, needs_human: false });
 }
 
 function body(req) {

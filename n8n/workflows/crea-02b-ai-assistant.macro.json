@@ -4,7 +4,7 @@
   "meta": {
     "family": "conversation_state_machine",
     "mode": "macro",
-    "note": "Conversational front for Cfilms bookings. Answers ONLY from the knowledge base, checks Acuity availability read-only (never books), captures the shoot brief as it learns it, hands to the owner when quote-ready or stuck. Transcript + brief live in the the vault API, not model memory. If OmniRoute is unreachable OR returns junk, it hands the live conversation straight to the deterministic qualifier (crea-02) — the two work together, AI leading. 14 nodes: the AI loop plus its real fallback; sub-workflows (wa-send, crea-02) keep the rest decomposed.",
+    "note": "Conversational front for Cfilms bookings. Answers ONLY from the knowledge base, checks Acuity availability read-only (never books), captures the shoot brief as it learns it, hands to the owner when quote-ready or stuck. Transcript + brief live in the vault API, not model memory. If OmniRoute is unreachable OR returns junk, it hands the live conversation straight to the deterministic qualifier (crea-02) — the two work together, AI leading. 14 nodes: the AI loop plus its real fallback; sub-workflows (wa-send, crea-02) keep the rest decomposed. Once it has enough to quote (or the customer asks for a human) it flags the owner and sets mode:'human' so crea-01 stops routing that chat to the bot for 3 days.",
     "steps": [
       "load_context",
       "retrieve_knowledge",
@@ -255,7 +255,7 @@
         "url": "{{STATE_STORE_URL}}",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ key: $node['Parse AI'].json.from, mode: 'ai', brief: $node['Parse AI'].json.brief, booking_ready: $node['Parse AI'].json.booking_ready, transcript: ($node['Build Prompt'].json.transcript || []).concat([{ role: 'user', content: $node['When called'].json.text }, { role: 'assistant', content: $node['Parse AI'].json.reply }]).slice(-12), lastInboundAt: new Date().toISOString() }) }}",
+        "jsonBody": "={{ (() => { const p = $node['Parse AI'].json; const handoff = !!(p.booking_ready || p.needs_human); return JSON.stringify({ key: p.from, mode: handoff ? 'human' : 'ai', humanSince: handoff ? new Date().toISOString() : undefined, brief: p.brief, booking_ready: p.booking_ready, transcript: ($node['Build Prompt'].json.transcript || []).concat([{ role: 'user', content: $node['When called'].json.text }, { role: 'assistant', content: p.reply }]).slice(-12), lastInboundAt: new Date().toISOString() }); })() }}",
         "options": {
           "timeout": 10000
         }

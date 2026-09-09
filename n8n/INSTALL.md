@@ -39,7 +39,7 @@ Write these down; you'll paste them into one file in Part C.
 
 | # | What | Where to get it |
 |---|---|---|
-| 1 | **A WhatsApp number for the bot** | Best: a cheap prepaid SIM or eSIM in a spare phone, so the bot is separate from your personal WhatsApp. OK: your own number (you'll see the bot's replies in your own chats). Install WhatsApp on that phone and verify the number — that's all. |
+| 1 | **A WhatsApp number for CREA** | **Your own number works** — this is the intended setup. CREA links as a companion device (like WhatsApp Web); your phone stays primary, your history stays intact, and CREA's replies to customers appear in your normal chat threads. Its alerts to you (quote-ready enquiries, the morning briefing) arrive in your **"Message Yourself"** chat. A separate prepaid SIM is the alternative if you'd rather keep CREA fully separate — see "Using your own WhatsApp number" after Part D. Either way: install WhatsApp on the phone that holds the number and verify it. |
 | 2 | **An LLM API key** (the assistant's brain) | **Groq — free, no credit card.** <https://console.groq.com> → sign up → **API Keys → Create API Key** → copy the `gsk_...` string. (Alternative: OpenAI at <https://platform.openai.com/api-keys> — needs a card.) |
 | 3 | **Acuity User ID + API Key** *(optional — turns on the shoot-ops automations)* | Acuity → **Integrations** → scroll to **API** → copy **User ID** and **API Key**. No webhook to set up — CREA polls Acuity every 10 minutes. |
 | 4 | **Higgsfield API key** *(optional — the card → video pipeline)* | Your Higgsfield account settings. |
@@ -126,6 +126,32 @@ re-running `./go-live.sh`.
 2. While you're in that file, make the rest true for your business: coverage area, turnaround
    times, booking process, payment terms, the FAQ. The assistant answers **only** from this file
    and never invents anything. Save — no restart needed.
+
+---
+
+## Using your own WhatsApp number (the normal setup)
+
+CREA runs fine on your personal number. Here's exactly what that looks like:
+
+- **CREA links as a companion device** — like adding WhatsApp Web. Your phone stays the main
+  device, your chat history is untouched, and you can keep using WhatsApp normally.
+- **Customer conversations** happen in your normal chat threads. When CREA replies to a
+  customer, it shows up as a message you sent. You see everything.
+- **CREA's alerts to you** — "Quote-ready enquiry", the morning briefing, error alerts —
+  arrive in your **"Message Yourself"** chat (the one at the top of your chat list with your
+  own name). Check it like an inbox.
+- **CREA hands a lead back to you and goes quiet.** Once it has enough for you to quote
+  (service + address + date), it sends you the brief and **stops replying to that customer for
+  3 days** so you take the conversation from there. If the customer messages again in that
+  window, CREA just leaves it in your thread for you.
+- `go-live.sh` notices you're on your own number and sets `CREA_SHARED_NUMBER=true` for you,
+  so it won't copy every incoming message to your "Message Yourself" chat (you already see them).
+
+**The one caveat** (same as any WhatsApp-Web-style tool): it's an unofficial connection.
+Meta's terms don't formally allow non-official clients and there's a small, rarely-triggered
+risk of a number being limited. If your bookings absolutely cannot afford any interruption,
+put CREA on a cheap second SIM instead — everything above still applies, except the alerts
+go to that number's chat with you and CREA relays customer messages to you there.
 
 ---
 

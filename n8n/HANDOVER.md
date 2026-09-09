@@ -1,4 +1,4 @@
-# CREA n8n — handover for Connell
+# CREA v2 — n8n handover for Connell
 
 The n8n "Hands Layer" for CREA: a WhatsApp AI booking assistant + shoot-ops automations.
 It's in `n8n/` in the CREA repo. This doc has two parts — **what you gather** (10 min), then

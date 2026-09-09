@@ -242,7 +242,7 @@
         "url": "{{STATE_STORE_URL}}",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ key: $node['Classify & Dedupe'].json.from, lastMsgId: $node['Classify & Dedupe'].json.msgId, lastInboundAt: $node['Classify & Dedupe'].json.receivedAt }) }}",
+        "jsonBody": "={{ JSON.stringify(Object.assign({ key: $node['Classify & Dedupe'].json.from, lastMsgId: $node['Classify & Dedupe'].json.msgId, lastInboundAt: $node['Classify & Dedupe'].json.receivedAt }, $node['Classify & Dedupe'].json.target === 'booking' ? { mode: 'ai' } : {})) }}",
         "options": {
           "timeout": 10000
         }
@@ -255,7 +255,7 @@
         1440,
         300
       ],
-      "onError": "continueErrorOutput"
+      "onError": "continueRegularOutput"
     }
   ],
   "connections": {

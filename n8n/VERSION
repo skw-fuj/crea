@@ -1,0 +1,23 @@
+CREA v2  —  n8n Hands Layer
+2.0.0 · 2026-09-09
+
+Standalone, client-owned automation pack: a WhatsApp AI booking assistant
+plus the shoot-ops automations (Acuity intake, confirmations, chase, card
+pipeline, invoicing, morning briefing, listing leads).
+
+What v2 is
+- Runs entirely under the buyer's own accounts. No shared services, ids,
+  paths or labels — the conversation state store and alert sink are folded
+  into vault-api/server.js, and the pack ships its own error workflow
+  (crea-00-error-handler).
+- CREA_VAULT_DIR points storage at your Obsidian vault so Obsidian Sync
+  backs up every booking, lead and invoice. See DATA-AND-BACKUP.md.
+- One command: ./go-live.sh. Handover to someone else: HANDOVER.md.
+
+Verified 2026-09-09 end to end on n8n 2.30.7 against a live model:
+answered from the knowledge file ($450 quoted verbatim, nothing invented),
+checked availability without confirming a slot, captured the shoot brief
+across turns, handed the owner a quote-ready enquiry, wrote the lead note;
+consecutive messages route correctly; LLM-down falls through to the
+deterministic 5-question qualifier; Acuity intake, card-pipeline human
+gate and the error handler all reach their designed end.

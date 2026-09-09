@@ -1,10 +1,13 @@
-# CREA — n8n Hands Layer
+# CREA v2 — n8n Hands Layer
 
 A **WhatsApp AI booking assistant** plus the shoot-ops automations (Acuity intake, shoot
 confirmations, chase, card pipeline, invoicing, morning briefing, listing leads). Optional —
 CREA's voice + vault work without it.
 
 Verified end-to-end against a live model on n8n 2.30.7 — `TEST-REPORT.md`, `test/run-report.html`.
+
+**v2** makes the pack fully standalone (no shared services), adds `CREA_VAULT_DIR` +
+`DATA-AND-BACKUP.md` for Obsidian-synced storage, and hardens multi-turn routing. `VERSION` has the details.
 
 ---
 

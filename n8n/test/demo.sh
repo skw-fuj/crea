@@ -30,8 +30,13 @@ fi
 
 echo "1/4  mock services…"
 pkill -9 -f "test/mock-services.js" 2>/dev/null || true; sleep 1
-CREA_KB_FILE=$PWD/test/crea-knowledge.test.md node test/mock-services.js > /tmp/crea-mock.log 2>&1 &
+# Offline by default (canned assistant reply). To exercise the real assistant, export
+# DEMO_LLM_URL + DEMO_LLM_KEY (any OpenAI-compatible chat endpoint) before running.
+CREA_KB_FILE=$PWD/test/crea-knowledge.test.md \
+  OMNIROUTE_URL="${DEMO_LLM_URL:-}" OMNIROUTE_KEY="${DEMO_LLM_KEY:-}" OMNIROUTE_MODEL="${DEMO_LLM_MODEL:-auto}" \
+  node test/mock-services.js > /tmp/crea-mock.log 2>&1 &
 disown; sleep 2
+[ -n "${DEMO_LLM_URL:-}" ] && echo "     assistant -> real model at $DEMO_LLM_URL" || echo "     assistant -> canned reply (offline)"
 
 curl -sf localhost:5699/waha/api/version >/dev/null && echo "     up on :5699"
 

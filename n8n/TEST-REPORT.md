@@ -1,8 +1,36 @@
-# CREA n8n — verification
+# CREA v2 n8n — verification
 
 Every workflow was driven end to end through a real n8n **2.30.7** instance against the real
 `vault-api/server.js`, with WAHA and the LLM endpoint stood in by `test/mock-services.js`
 (which captures every outbound call). `test/demo.sh` reproduces the run.
+
+## v2 re-verification (2026-09-09) — live model
+
+The full suite was re-run with the assistant pointed at a **real OpenAI-compatible model**
+(`test/demo.sh` with `DEMO_LLM_URL`/`DEMO_LLM_KEY` set). A three-turn booking conversation:
+
+- Turn 1 "how much for a listing video" → **"The video package is $450"** — the exact figure
+  from the knowledge file, nothing invented — and asked for the address.
+- Turn 2 "40 Awaba St, Mosman. Can you do this Saturday?" → routed to the assistant (not the
+  inbox), checked availability, replied **"that looks open, the owner will confirm"** — never
+  confirmed a slot — brief now had address + date → **owner got a "Quote-ready enquiry"** with
+  the brief, lead note written to the vault (`status: to-quote`).
+- Turn 3 "let's book it. Lockbox 4471, tenant occupied" → captured `access: Lockbox 4471`,
+  `notes: Tenant occupied` in the right fields; owner got the updated enquiry.
+
+Final state: `mode: ai`, `booking_ready: true`, clean 6-turn transcript. 8 model calls, 8
+knowledge lookups, 8 availability checks, 4 lead notes, 0 errors across 47 executions
+(card pipeline correctly `waiting` at the human gate).
+
+Two bugs this pass caught and fixed:
+
+- **Consecutive-message race** — a second message arriving while the first turn's assistant
+  run was still finishing was read against stale state and fell to the inbox. `crea-01` now
+  marks the conversation `mode: ai` the instant it routes to the assistant, not when the
+  assistant finishes.
+- **Stateless test stub** — `mock-services.js` `/vault/state` didn't persist, so the
+  multi-turn path was never really exercised offline. It now merges and holds state like the
+  shipped vault API.
 
 ## Result — all workflows reach their designed end
 

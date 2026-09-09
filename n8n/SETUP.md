@@ -1,4 +1,4 @@
-# CREA — n8n Hands Layer · Setup
+# CREA v2 — n8n Hands Layer · Setup
 
 The n8n layer of CREA: a WhatsApp AI booking assistant plus the shoot-ops automations.
 n8n runs the workflows; an OpenAI-compatible LLM (OmniRoute) and a small local **vault API**

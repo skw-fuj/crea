@@ -3,7 +3,7 @@
   "meta": {
     "family": "reliable_ingress",
     "mode": "macro",
-    "note": "Front door for the owner's personal WhatsApp (via WAHA). Ignores own outgoing messages, dedupes, then: an active booking conversation -> hand to Booking Agent; anything else -> vault inbox + a one-line notify to the owner. No model memory; routing is deterministic.",
+    "note": "Front door for the owner's WhatsApp (via WAHA). Ignores own outgoing messages, dedupes, then: an active booking conversation -> hand to the assistant; anything else -> vault inbox (+ relay to the owner if CREA runs on a separate number). Once a lead is handed to the owner it goes quiet on that chat for 3 days so the owner deals with the customer directly. No model memory; routing is deterministic.",
     "steps": [
       "parse_inbound_message",
       "dedupe",
@@ -33,7 +33,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const b = items[0].json.body || items[0].json;\nif (b.event && b.event !== 'message') return [];\nconst p = b.payload || b;\nif (p.fromMe === true) return [];\nconst type = p.type || 'chat';\nconst from = String(p.from || '').replace('@c.us','');\nif (!from) throw new Error('Inbound missing sender');\nconst text = (p.body || '').trim();\nreturn [{ json: { msgId: p.id || null, from, text, type, receivedAt: new Date().toISOString() } }];"
+        "jsCode": "const b = items[0].json.body || items[0].json;\nif (b.event && b.event !== 'message') return [];\nconst p = b.payload || b;\nif (p.fromMe === true) return [];\nconst type = p.type || 'chat';\nconst from = String(p.from || '').replace('@c.us','');\nif (!from) throw new Error('Inbound missing sender');\nconst text = (p.body || '').trim();\n// the account this message was sent TO = the number CREA runs on (used to tell whether\n// CREA is on the owner's own number)\nconst toAcct = String(p.to || p.me || '').replace(/[^0-9]/g, '');\nreturn [{ json: { msgId: p.id || null, from, text, type, toAcct, receivedAt: new Date().toISOString() } }];"
       },
       "id": "parse",
       "name": "Parse & Guard",
@@ -65,7 +65,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const inc = $node['Parse & Guard'].json;\nconst stored = items[0].json || {};\n// dedupe: same message id already processed\nif (inc.msgId && stored.lastMsgId === inc.msgId) return [];\nconst activeBooking = (!!stored.stage && stored.stage !== 'close') || stored.mode === 'ai' || (Array.isArray(stored.transcript) && stored.transcript.length > 0 && !stored.booking_ready);\nconst t = (inc.text || '').toLowerCase();\nconst bookingWords = ['shoot','photo','photos','video','listing','book','booking','quote','drone','tour','floor plan','floorplan','twilight'];\nconst looksBooking = bookingWords.some(w => t.includes(w));\nconst target = (activeBooking || looksBooking) ? 'booking' : 'other';\nreturn [{ json: { ...inc, target, priorStage: stored.stage || null } }];"
+        "jsCode": "const inc = $node['Parse & Guard'].json;\nconst stored = items[0].json || {};\n// dedupe: same message id already processed\nif (inc.msgId && stored.lastMsgId === inc.msgId) return [];\n\n// once a lead is handed to the owner, the bot stays quiet on that chat for 3 days\n// so the owner can deal with the customer directly (matters most on a shared number)\nconst daysSinceHuman = stored.humanSince ? (Date.now() - Date.parse(stored.humanSince)) / 864e5 : 999;\nconst humanHandled = stored.mode === 'human' && daysSinceHuman < 3;\n\nconst activeBooking = !humanHandled && ((!!stored.stage && stored.stage !== 'close') || stored.mode === 'ai' || (Array.isArray(stored.transcript) && stored.transcript.length > 0 && !stored.booking_ready));\nconst t = (inc.text || '').toLowerCase();\nconst bookingWords = ['shoot','photo','photos','video','listing','book','booking','quote','drone','tour','floor plan','floorplan','twilight'];\nconst looksBooking = !humanHandled && bookingWords.some(w => t.includes(w));\nconst target = (activeBooking || looksBooking) ? 'booking' : 'other';\n\n// on a shared number the owner already sees every incoming message in their own WhatsApp,\n// so there is nothing useful to relay. Config flag wins; else infer from the account the\n// message was sent to vs CREA_OWNER_WA.\nconst flag = String('{{CREA_SHARED_NUMBER}}').toLowerCase();\nconst ownerDigits = String('{{CREA_OWNER_WA}}').replace(/[^0-9]/g, '');\nconst toAcct = String(inc.toAcct || '');\nconst inferShared = !!(toAcct && ownerDigits && (toAcct === ownerDigits || toAcct.endsWith(ownerDigits) || ownerDigits.endsWith(toAcct)));\nconst sharedNumber = flag === 'true' ? true : (flag === 'false' ? false : inferShared);\nreturn [{ json: { ...inc, target, humanHandled, relayToOwner: !sharedNumber, priorStage: stored.stage || null } }];"
       },
       "id": "classify",
       "name": "Classify & Dedupe",
@@ -124,8 +124,8 @@
         "workflowInputs": {
           "mappingMode": "defineBelow",
           "value": {
-            "from": "={{ $json.from }}",
-            "text": "={{ $json.text }}"
+            "from": "={{ $node['Classify & Dedupe'].json.from }}",
+            "text": "={{ $node['Classify & Dedupe'].json.text }}"
           },
           "matchingColumns": [],
           "schema": [
@@ -188,6 +188,30 @@
     },
     {
       "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "typeValidation": "loose" },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $node['Classify & Dedupe'].json.relayToOwner }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "true", "singleValue": true }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "relayif",
+      "name": "Relay to Owner?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        400
+      ]
+    },
+    {
+      "parameters": {
         "workflowId": {
           "__rl": true,
           "value": "creawasend",
@@ -198,7 +222,7 @@
           "mappingMode": "defineBelow",
           "value": {
             "to": "{{CREA_OWNER_WA}}",
-            "text": "={{ 'WhatsApp from ' + $node['Parse & Guard'].json.from + ': ' + ($node['Parse & Guard'].json.text || ('(' + $node['Parse & Guard'].json.type + ')')) }}"
+            "text": "={{ ($node['Classify & Dedupe'].json.humanHandled ? '↪ follow-up from ' : 'WhatsApp from ') + $node['Parse & Guard'].json.from + ': ' + ($node['Parse & Guard'].json.text || ('(' + $node['Parse & Guard'].json.type + ')')) }}"
           },
           "matchingColumns": [],
           "schema": [
@@ -231,8 +255,8 @@
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
       "position": [
-        1440,
-        400
+        1660,
+        360
       ],
       "onError": "continueErrorOutput"
     },
@@ -242,7 +266,7 @@
         "url": "{{STATE_STORE_URL}}",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify(Object.assign({ key: $node['Classify & Dedupe'].json.from, lastMsgId: $node['Classify & Dedupe'].json.msgId, lastInboundAt: $node['Classify & Dedupe'].json.receivedAt }, $node['Classify & Dedupe'].json.target === 'booking' ? { mode: 'ai' } : {})) }}",
+        "jsonBody": "={{ JSON.stringify({ key: $node['Classify & Dedupe'].json.from, lastMsgId: $node['Classify & Dedupe'].json.msgId, lastInboundAt: $node['Classify & Dedupe'].json.receivedAt }) }}",
         "options": {
           "timeout": 10000
         }
@@ -254,6 +278,27 @@
       "position": [
         1440,
         300
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "{{STATE_STORE_URL}}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ key: $node['Classify & Dedupe'].json.from, mode: 'ai' }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "markactive",
+      "name": "Mark Active",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1220,
+        120
       ],
       "onError": "continueRegularOutput"
     }
@@ -307,7 +352,7 @@
       "main": [
         [
           {
-            "node": "-> Booking Handler",
+            "node": "Mark Active",
             "type": "main",
             "index": 0
           },
@@ -331,7 +376,29 @@
         ]
       ]
     },
+    "Mark Active": {
+      "main": [
+        [
+          {
+            "node": "-> Booking Handler",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
     "Vault Inbox": {
+      "main": [
+        [
+          {
+            "node": "Relay to Owner?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Relay to Owner?": {
       "main": [
         [
           {

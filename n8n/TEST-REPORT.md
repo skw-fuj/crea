@@ -43,6 +43,28 @@ watermark of processed appointment ids kept in the vault state. Verified: first 
 two mock appointments → two job records + owner pings, watermark `["9001","9002"]`; a second
 poll processed **zero** new. This removes the last reason CREA would need an inbound tunnel.
 
+## Personal-number use + human handoff (2026-09-09)
+
+CREA is designed to run on the owner's **own** WhatsApp number (companion device, like
+WhatsApp Web). Verified against a live model:
+
+- **Handoff.** Once the assistant has a quotable brief (or the customer asks for a human) it
+  pings the owner and writes `mode: 'human'` + `humanSince`. `crea-01` then routes further
+  messages on that chat to the owner for 3 days instead of back to the bot — no double-replies.
+  Test: after "Quote-ready enquiry", the customer's next message arrived as
+  `↪ follow-up from <number>: …` to the owner and the assistant did **not** reply.
+- **Shared number** (`CREA_SHARED_NUMBER=true`, which `go-live.sh` sets automatically when it
+  sees CREA is on `CREA_OWNER_WA`): the same follow-up produced **zero** outgoing messages —
+  no relay (the owner sees it in their own thread) and no bot reply (`mode: 'human'`). The
+  message is still recorded to the vault inbox.
+- **No echo loop.** WAHA's `message` webhook is incoming-only; the bot's own sends and the
+  owner's manual replies (`fromMe: true`) never re-enter `crea-01`. `Parse & Guard` also drops
+  `fromMe` as a second guard.
+- A fresh booking keyword after the 3-day quiet window re-engages the assistant.
+
+The one caveat is inherent to any WhatsApp-Web-style tool: it is an unofficial connection
+(documented in INSTALL.md).
+
 ## Packaging (2026-09-09)
 
 CREA v2 ships as a Docker Compose stack (`deploy/docker-compose.yml` — n8n + WAHA +

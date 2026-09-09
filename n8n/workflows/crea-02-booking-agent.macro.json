@@ -3,7 +3,7 @@
   "meta": {
     "family": "conversation_state_machine",
     "mode": "macro",
-    "note": "Deterministic shoot-booking qualification for Cfilms. Stage lives in the the vault API, never model memory. On completion the brief is pushed to the vault as a lead for the owner to quote. Brand via {{CREA_BUSINESS_NAME}}. Replies go out through CREA — WA Send.",
+    "note": "Deterministic shoot-booking qualification for Cfilms. Stage lives in the vault API, never model memory. On completion the brief is pushed to the vault as a lead for the owner to quote. Brand via {{CREA_BUSINESS_NAME}}. Replies go out through CREA — WA Send. On the final answer it sets mode:'human' so crea-01 hands further messages on that chat to the owner.",
     "steps": [
       "load_stage",
       "route_by_stage",
@@ -126,7 +126,7 @@
         "url": "{{STATE_STORE_URL}}",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ key: $json.from, stage: $json.nextStage, answers: $json.answers, lastReply: $json.reply }) }}",
+        "jsonBody": "={{ (() => { const j = $json; const done = j.nextStage === 'close'; return JSON.stringify({ key: j.from, stage: j.nextStage, answers: j.answers, lastReply: j.reply, mode: done ? 'human' : undefined, humanSince: done ? new Date().toISOString() : undefined }); })() }}",
         "options": {
           "timeout": 10000
         }

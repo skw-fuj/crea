@@ -322,10 +322,15 @@ def rms(audio) -> float:
 
 
 def write_wav(audio, sample_rate: int = SAMPLE_RATE) -> Path:
+    import os
     import tempfile
     import wave
     import numpy as np
-    p = Path(tempfile.mkstemp(suffix=".wav")[1])
+    # See the note in loop.play(): mkstemp hands back an open fd that must be
+    # closed, or the wake loop leaks one descriptor per utterance.
+    fd, name = tempfile.mkstemp(suffix=".wav")
+    os.close(fd)
+    p = Path(name)
     with wave.open(str(p), "wb") as w:
         w.setnchannels(1); w.setsampwidth(2); w.setframerate(sample_rate)
         w.writeframes(np.asarray(audio, dtype="int16").tobytes())

@@ -1,9 +1,11 @@
-"""The n8n automations layer — CREA's hands for anything WhatsApp.
+"""The n8n automations layer — CREA's hands for WhatsApp and phone bookings.
 
-The `crea's automations` pack (n8n + WAHA + vault-api, in Docker on this Mac)
-runs the customer-facing WhatsApp booking assistant. It writes job, client and
-lead notes into this same vault in CREA's own frontmatter, so the voice
-assistant already sees every booking it takes.
+The `crea's automations` pack (n8n + WAHA + vault-api, + Twilio/Cloudflare for
+phone calls, in Docker on this Mac) runs the customer-facing booking
+assistant on both channels. It writes job, client and lead notes into this
+same vault in CREA's own frontmatter — jobs are tagged `source: whatsapp` or
+`source: call` depending on which one a customer used — so the voice
+assistant already sees every booking it takes, from either channel.
 
 This connector is the small path the other way: the voice assistant asking the
 automations to *do* something — confirm a held booking, or send a customer a

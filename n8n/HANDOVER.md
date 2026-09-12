@@ -46,6 +46,23 @@ That's it. After a reboot it all comes back on its own.
 
 All six live in `config.env`; change any and re-run `./go-live.sh`.
 
+## Optional — take bookings by phone too
+
+Same assistant, answering calls as well as WhatsApp. **Entirely optional** — skip this whole
+section and everything above still works exactly as described. If you want it:
+
+1. Read `VOICE.md` — it walks through the two accounts you need (Twilio, Cloudflare — both
+   free to set up, Twilio charges per call once live) and what to put in `config.env`.
+2. `./go-live.sh` again — it activates the phone line automatically once those values are filled.
+3. **`./go-live.sh --test-voice`** — proves the whole phone pipeline works *before* you dial
+   anything. It doesn't make a real call and doesn't touch your Twilio balance; it just checks
+   that everything is wired correctly. **If this doesn't print a green ✓, do not point your
+   Twilio number at it yet** — fix whatever it tells you first, then run it again. It's safe to
+   run as many times as you like.
+4. Once that's green: point your Twilio number's webhook at the URL `VOICE.md` gives you, and
+   make one real test call. That's the only step nothing here can do for you — same as scanning
+   the WhatsApp QR.
+
 ## If you'd rather have Claude Code do the setup
 
 If you use Claude Code, open it in the unzipped folder and paste this:
@@ -53,13 +70,17 @@ If you use Claude Code, open it in the unzipped folder and paste this:
 > Read INSTALL.md and BOOKING.md. I've installed Docker Desktop and it's running. Interview
 > me for the six setup questions in HANDOVER.md, then write config.env (and pricing.json if
 > needed), run ./go-live.sh, and report back the QR instructions and the result of
-> ./go-live.sh --test. Don't scan the QR — that's mine.
+> ./go-live.sh --test. If I also want phone bookings, read VOICE.md, interview me for the
+> Twilio/Cloudflare values, then run ./go-live.sh --test-voice and don't let me point a real
+> Twilio number at it until that's green. Don't scan the QR — that's mine.
 
-It still can't scan the QR or invent your prices — those stay with you.
+It still can't scan the QR, make the Twilio/Cloudflare accounts, or invent your prices —
+those stay with you.
 
 ## Support
 - `INSTALL.md` — one-time setup + troubleshooting
 - `BOOKING.md` — the two booking decisions + `knowledge/pricing.json`
+- `VOICE.md` — optional phone bookings (Twilio + Cloudflare Tunnel setup, `--test-voice`)
 - `COUNTERMEASURES.md` — how CREA handles outages and abuse (nothing to configure — good to skim)
 - `OPERATIONS.md` — everything after that: changing prices/wording, config, updates, new
   features, backups, disaster recovery

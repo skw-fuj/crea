@@ -35,6 +35,8 @@ services:
       - N8N_SECURE_COOKIE=false
       - N8N_RUNNERS_ENABLED=true
       - N8N_HIRING_BANNER_ENABLED=false
+      # crea-13 (voice) verifies Twilio's request signature with Node's crypto module
+      - NODE_FUNCTION_ALLOW_BUILTIN=crypto
       # keep the SQLite db from growing without bound
       - EXECUTIONS_DATA_PRUNE=true
       - EXECUTIONS_DATA_MAX_AGE=336
@@ -77,6 +79,17 @@ services:
     # no container healthcheck for WAHA — "port up" says nothing about whether WhatsApp is
     # actually linked. The host watchdog checks the real signal (session status == WORKING)
     # and re-links a dropped session.
+
+  cloudflared:
+    # only relevant once CREA_CF_TUNNEL_TOKEN is set (voice calls need a public URL for
+    # Twilio to reach n8n — WhatsApp doesn't, WAHA polls out). Runs but sits idle otherwise.
+    image: cloudflare/cloudflared:latest
+    container_name: crea-cloudflared
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run --token ${CREA_CF_TUNNEL_TOKEN:-}
+    depends_on:
+      - n8n
+    profiles: ["voice"]
 
   vault-api:
     image: node:20-alpine

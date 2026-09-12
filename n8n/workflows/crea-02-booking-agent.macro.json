@@ -26,6 +26,10 @@
             {
               "name": "text",
               "type": "string"
+            },
+            {
+              "name": "channel",
+              "type": "string"
             }
           ]
         }
@@ -59,7 +63,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Deterministic Cfilms booking qualification. Capture the shoot brief.\nconst inc = $node['When called'].json;\nconst stored = items[0].json || {};\nconst stage = stored.stage || 'greeting';\nconst answers = (typeof stored.answers === 'object' && stored.answers) ? stored.answers : {};\nif (stage !== 'greeting') answers[stage] = inc.text;\nconst B = '{{CREA_BUSINESS_NAME}}';\nconst script = {\n  greeting:   { reply: `Hi! Thanks for reaching out to ${B}. What do you need \\u2014 listing photos, video, drone, a 3D tour, or a combo?`, next: 'service' },\n  service:    { reply: `Great. What\\u2019s the property type and rough size (beds / sqm), and the full address?`, next: 'property' },\n  property:   { reply: `Perfect. What date and time works for the shoot?`, next: 'scheduling' },\n  scheduling: { reply: `Thanks! Any access notes \\u2014 lockbox code, tenant/owner occupied, parking?`, next: 'access' },\n  access:     { reply: `All set \\u2014 ${B} will review and send your quote and confirmation shortly. Talk soon!`, next: 'close' },\n  close:      { reply: `You\\u2019re already in the queue \\u2014 ${B} will be in touch with your quote. If you need to change anything just reply here.`, next: 'close' }\n};\nconst step = script[stage] || script.greeting;\nconst justCompleted = (stage === 'access');\nreturn [{ json: { from: inc.from, reply: step.reply, nextStage: step.next, answers, justCompleted } }];"
+        "jsCode": "// Deterministic Cfilms booking qualification. Capture the shoot brief.\nconst inc = $node['When called'].json;\nconst channel = (inc.channel || 'whatsapp').toLowerCase();\nconst stored = items[0].json || {};\nconst stage = stored.stage || 'greeting';\nconst answers = (typeof stored.answers === 'object' && stored.answers) ? stored.answers : {};\nif (stage !== 'greeting') answers[stage] = inc.text;\nconst B = '{{CREA_BUSINESS_NAME}}';\nconst script = {\n  greeting:   { reply: `Hi! Thanks for reaching out to ${B}. What do you need \\u2014 listing photos, video, drone, a 3D tour, or a combo?`, next: 'service' },\n  service:    { reply: `Great. What\\u2019s the property type and rough size (beds / sqm), and the full address?`, next: 'property' },\n  property:   { reply: `Perfect. What date and time works for the shoot?`, next: 'scheduling' },\n  scheduling: { reply: `Thanks! Any access notes \\u2014 lockbox code, tenant/owner occupied, parking?`, next: 'access' },\n  access:     { reply: `All set \\u2014 ${B} will review and send your quote and confirmation shortly. Talk soon!`, next: 'close' },\n  close:      { reply: (channel === 'voice' ? `You\\u2019re already in the queue \\u2014 ${B} will be in touch with your quote. If anything changes just call back.` : `You\\u2019re already in the queue \\u2014 ${B} will be in touch with your quote. If you need to change anything just reply here.`), next: 'close' }\n};\nconst step = script[stage] || script.greeting;\nconst justCompleted = (stage === 'access');\nreturn [{ json: { from: inc.from, channel, reply: step.reply, nextStage: step.next, answers, justCompleted } }];"
       },
       "id": "route",
       "name": "Route, Build Reply & Capture",
@@ -126,7 +130,7 @@
         "url": "{{STATE_STORE_URL}}",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ (() => { const j = $json; const done = j.nextStage === 'close'; return JSON.stringify({ key: j.from, stage: j.nextStage, answers: j.answers, lastReply: j.reply, mode: done ? 'human' : undefined, humanSince: done ? new Date().toISOString() : undefined }); })() }}",
+        "jsonBody": "={{ (() => { const j = $json; const done = j.nextStage === 'close'; return JSON.stringify({ key: j.from, stage: j.nextStage, answers: j.answers, lastReply: j.reply, _lastReply: j.reply, _lastConfirmed: false, _lastNeedsHuman: done, mode: done ? 'human' : undefined, humanSince: done ? new Date().toISOString() : undefined }); })() }}",
         "options": {
           "timeout": 10000
         }
@@ -245,6 +249,35 @@
         340
       ],
       "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.channel }}",
+              "rightValue": "whatsapp",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "channelif",
+      "name": "Channel: WhatsApp?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        860,
+        120
+      ]
     }
   ],
   "connections": {
@@ -274,7 +307,7 @@
       "main": [
         [
           {
-            "node": "Send Reply",
+            "node": "Channel: WhatsApp?",
             "type": "main",
             "index": 0
           },
@@ -318,6 +351,18 @@
             "index": 0
           }
         ]
+      ]
+    },
+    "Channel: WhatsApp?": {
+      "main": [
+        [
+          {
+            "node": "Send Reply",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
       ]
     }
   },

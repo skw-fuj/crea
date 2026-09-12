@@ -9,6 +9,7 @@
 #    ./go-live.sh --bookings           list held bookings waiting on your CONFIRM
 #    ./go-live.sh --confirm <ref>      book a held booking in (creates the Acuity appt)
 #    ./go-live.sh --decline <ref>      release a held booking
+#    ./go-live.sh --test-voice         proves the phone pipeline works, no real call needed
 #    ./go-live.sh --stop     stop the stack (data is kept)
 #    ./go-live.sh --down     stop and remove containers (named volumes kept)
 #    ./go-live.sh --logs [service]
@@ -73,6 +74,8 @@ build_clean_env(){
   if [ -n "$vd" ]; then mkdir -p "$vd" || die "cannot create CREA_VAULT_DIR: $vd"
     printf 'CREA_VAULT_DIR_ABS=%s\n' "$vd" >> "$ENVCLEAN"
   else printf 'CREA_VAULT_DIR_ABS=crea_vault\n' >> "$ENVCLEAN"; fi
+  # voice calls need cloudflared (Twilio must reach n8n publicly — WAHA just polls out)
+  [ -n "$(cfg CREA_TWILIO_ACCOUNT_SID)" ] && printf 'COMPOSE_PROFILES=voice\n' >> "$ENVCLEAN"
 }
 
 # ---------------------------------------------------------------------------
@@ -102,6 +105,12 @@ lc=h.get('llm') or {}
 print(f"  LLM circuit: {'OPEN (fallback flow)' if lc.get('open') else 'closed'}  ·  disk free: {h.get('disk_free_gb')} GB  ·  last backup: {h.get('last_backup_age_h')} h ago")
 PY
       echo "  full dashboard: open  http://localhost:$(cfg CREA_VAULT_PORT || echo 5692)/status.html"
+    fi
+    if [ -n "$(cfg CREA_TWILIO_ACCOUNT_SID)" ]; then
+      compose ps cloudflared 2>/dev/null | grep -qi "up\|running" && ok "cloudflared tunnel container running" || warn "cloudflared not running — voice calls can't reach n8n. ./go-live.sh --logs cloudflared"
+      echo "  voice: run ./go-live.sh --test-voice to check the phone pipeline"
+    else
+      echo "  voice: not configured (CREA_TWILIO_ACCOUNT_SID blank) — see VOICE.md to add phone bookings"
     fi
     launchctl list 2>/dev/null | grep -q com.crea.watchdog && ok "watchdog installed" || warn "watchdog not installed — ./go-live.sh --watchdog install"
     exit 0 ;;
@@ -147,6 +156,29 @@ if not r: print("  (none)")
 for x in r: print("  %-6s %s  %s" % (x.get("ref","?"), (x.get("brief") or {}).get("address","?"), x.get("datetime") or x.get("estimate") or ""))' \
       || warn "could not read pending bookings — ./go-live.sh --status"
     echo "  confirm one:  ./go-live.sh --confirm <ref>"
+    exit 0 ;;
+  --test-voice)
+    [ -f "$ENVCLEAN" ] || build_clean_env
+    K="$(cfg CREA_TWILIO_AUTH_TOKEN)"; [ -n "$K" ] || die "CREA_TWILIO_AUTH_TOKEN is blank — set up voice first (see VOICE.md)"
+    PUB="$(cfg CREA_PUBLIC_BASE_URL)"; [ -n "$PUB" ] || die "CREA_PUBLIC_BASE_URL is blank — set up voice first (see VOICE.md)"
+    b "testing the voice pipeline locally — no real call, no Twilio balance spent"
+    URL="${PUB%/}/webhook/crea-voice-inbound"
+    T="61400000000"; CALLSID="CAtest$(date +%s)"
+    # Twilio's documented signing algorithm: url + sorted(key+value, no separator), HMAC-SHA1, base64.
+    # Field order here (CallSid, CallStatus, From) IS the sorted order for exactly these 3 keys —
+    # if you add fields to this test, re-sort alphabetically or the signature won't validate.
+    DATA="${URL}CallSid${CALLSID}CallStatusringingFrom+${T}"
+    SIG=$(printf '%s' "$DATA" | openssl dgst -sha1 -hmac "$K" -binary | base64)
+    RESP=$(curl -s -X POST "$(N8N_URL)/webhook/crea-voice-inbound" \
+      -H "X-Twilio-Signature: $SIG" \
+      --data-urlencode "CallSid=${CALLSID}" --data-urlencode "CallStatus=ringing" --data-urlencode "From=+${T}")
+    echo "$RESP" | python3 -c "import sys,xml.dom.minidom as m; print(m.parseString(sys.stdin.read()).toprettyxml(indent='  '))" 2>/dev/null || echo "$RESP"
+    case "$RESP" in
+      *"<Reject"*) die "signature check failed — CREA_TWILIO_AUTH_TOKEN or CREA_PUBLIC_BASE_URL in config.env won't match what Twilio sends. Fix config.env and re-run — do NOT point a real Twilio number at this until this passes." ;;
+      *"<Gather"*) ok "voice pipeline OK — that's the exact greeting a caller hears first. This proves signature verification, the blocklist/flood/human-handoff checks, and the greeting all work.";
+        warn "NOT proven yet: the Cloudflare Tunnel is actually reachable from the internet, and the Twilio number's webhook URL is set correctly. Do ONE real test call after this passes — that closes the loop." ;;
+      *) die "unexpected response — is the stack up? ./go-live.sh --status . Got: $RESP" ;;
+    esac
     exit 0 ;;
   --export)
     [ -f "$ENVCLEAN" ] || build_clean_env
@@ -201,6 +233,20 @@ fi
 miss=""; for k in CREA_OWNER_WA CREA_WAHA_API_KEY CREA_OMNIROUTE_URL CREA_OMNIROUTE_KEY; do
   [ -z "$(cfg "$k")" ] && miss="$miss $k"; done
 [ -n "$miss" ] && die "these REQUIRED values are blank in config.env:$miss"
+# voice is all-or-nothing: a half-filled Twilio block would silently "activate" a channel
+# that can never pass signature verification — catch that now, not after Connell's first call.
+if [ -n "$(cfg CREA_TWILIO_ACCOUNT_SID)" ]; then
+  vmiss=""; for k in CREA_TWILIO_AUTH_TOKEN CREA_TWILIO_NUMBER CREA_PUBLIC_BASE_URL CREA_CF_TUNNEL_TOKEN; do
+    [ -z "$(cfg "$k")" ] && vmiss="$vmiss $k"; done
+  [ -n "$vmiss" ] && die "CREA_TWILIO_ACCOUNT_SID is set but these voice values are blank:$vmiss — fill them (see VOICE.md) or clear CREA_TWILIO_ACCOUNT_SID to skip voice for now"
+  pub="$(cfg CREA_PUBLIC_BASE_URL)"
+  case "$pub" in
+    https://*) : ;;
+    http://*)  die "CREA_PUBLIC_BASE_URL must be https:// (Twilio requires it) — got: $pub" ;;
+    *)         die "CREA_PUBLIC_BASE_URL doesn't look like a URL — got: $pub" ;;
+  esac
+  case "$pub" in */) die "CREA_PUBLIC_BASE_URL shouldn't end in / — got: $pub" ;; esac
+fi
 ok "Docker is running; config.env has the required values"
 
 b "2/9  encryption key"
@@ -273,6 +319,8 @@ else
 fi
 if [ -n "$(cfg CREA_APIFY_TOKEN)" ]; then n8n_cli update:workflow --id=creaapifyleads --active=true >/dev/null 2>&1 || true; on="$on + listing leads"
 else n8n_cli update:workflow --id=creaapifyleads --active=false >/dev/null 2>&1 || true; fi
+if [ -n "$(cfg CREA_TWILIO_ACCOUNT_SID)" ]; then n8n_cli update:workflow --id=creavoiceinbound --active=true >/dev/null 2>&1 || true; on="$on + phone booking"
+else n8n_cli update:workflow --id=creavoiceinbound --active=false >/dev/null 2>&1 || true; fi
 compose restart n8n >/dev/null
 wait_http "$(N8N_URL)/healthz" "n8n restarted (webhooks registered)" 120
 ok "activated: $on + LLM circuit breaker + self-check"

@@ -821,7 +821,7 @@
       "main": [
         [
           {
-            "node": "Persist Context",
+            "node": "Save Reply for Caller",
             "type": "main",
             "index": 0
           }
@@ -865,11 +865,6 @@
           },
           {
             "node": "Guard flagged?",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "Save Reply for Caller",
             "type": "main",
             "index": 0
           }
@@ -1003,6 +998,17 @@
             "index": 0
           }
         ],
+        [
+          {
+            "node": "Save Reply for Caller",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Reply for Caller": {
+      "main": [
         [
           {
             "node": "Persist Context",

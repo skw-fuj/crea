@@ -48,7 +48,7 @@ n8n import:workflow --separate --input=workflows/_filled/ >/dev/null 2>&1
 echo "3/4  activate + restart n8n…"
 activate creawasend creallm creawainbound creabookingagent creaaiassistant creaacuityintake creacardpipeline creaselfcheck \
          creashootconfirm creachasenoreply creamondayinvoice creamorningbrief creaerrorhandler creaapifyleads \
-         creabooking creamsgclient
+         creabooking creamsgclient creavoiceinbound
 restart
 
 echo "4/4  drive traffic…"

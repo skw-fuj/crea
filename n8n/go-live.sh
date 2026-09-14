@@ -91,9 +91,9 @@ case "${1:-}" in
                 || warn "WAHA not reachable / no session"
     H=$(compose exec -T vault-api wget -q -O - http://localhost:5692/health 2>/dev/null || true)
     if [ -n "$H" ]; then
-      printf '%s' "$H" | python3 - <<'PY' 2>/dev/null || true
-import sys,json
-h=json.load(sys.stdin)
+      H="$H" python3 - <<'PY' 2>/dev/null || true
+import os,json
+h=json.loads(os.environ["H"])
 g="\033[32m"; y="\033[33m"; r="\033[31m"; n="\033[0m"
 print(f"  {g if h.get('ok') else r}{'healthy' if h.get('ok') else 'NEEDS ATTENTION'}{n}  (vault-api v{h.get('version')})")
 for k,v in (h.get('critical') or {}).items():

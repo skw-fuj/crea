@@ -38,10 +38,11 @@ jobs:
           cp config.example.env /tmp/ci-config.env
           ./fill-config.sh /tmp/ci-config.env workflows
 
-      - name: go-live.sh and demo.sh parse cleanly
+      - name: go-live.sh, demo.sh, ci-verify.sh parse cleanly
         run: |
           bash -n n8n/go-live.sh
           bash -n n8n/test/demo.sh
+          bash -n n8n/test/ci-verify.sh
 
       - name: docker-compose.yml is valid (with the voice profile active)
         run: |
@@ -75,3 +76,62 @@ jobs:
           python-version: "3.x"
       - name: core.vault reads back every note n8n writes (job, client, lead — both channels)
         run: python3 tests/test_n8n_vault_compat.py
+
+  # The gate that actually matters. static-checks and vault-compat catch typos and
+  # unresolved tokens; this catches what only a real, running n8n engine can surface —
+  # a hand-authored node n8n's own executor chokes on, a Code-node sandbox restriction,
+  # an execution-order/$json-replacement gotcha. All 3 real bugs in PR #12 were found
+  # exactly this way, by hand, before this job existed. No real Twilio/Groq/WhatsApp
+  # account needed — n8n.test/mock-services.js + mock-llm.js stand in for everything
+  # outside n8n itself, and n8n/test/ci-verify.sh hard-asserts the outcome.
+  live-n8n:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: start n8n — the actual pinned image docker-compose.yml ships, not npm
+        run: |
+          # `npm install -g n8n` tries to compile isolated-vm from source via node-gyp,
+          # which breaks on newer Python (distutils was removed in 3.12+) — a build-
+          # toolchain problem that has nothing to do with n8n or this repo, and that the
+          # shipped Docker image sidesteps entirely by shipping prebuilt. Running the
+          # real production image here is also just more honest: it's what Connell's
+          # Mac actually runs, not an npm variant of it.
+          docker run -d --name ci-n8n --network host \
+            -e NODE_FUNCTION_ALLOW_BUILTIN=crypto \
+            -e N8N_DIAGNOSTICS_ENABLED=false -e N8N_PERSONALIZATION_ENABLED=false -e N8N_SECURE_COOKIE=false \
+            -v "$PWD/n8n:$PWD/n8n" -w "$PWD/n8n" \
+            n8nio/n8n:2.30.7
+          # ci-verify.sh (and demo.sh, and go-live.sh) all call a bare `n8n` CLI — this
+          # puts one on PATH that forwards into the running container, so none of them
+          # need to know or care that n8n isn't installed on the runner directly.
+          sudo tee /usr/local/bin/n8n > /dev/null <<'SHIM'
+          #!/usr/bin/env bash
+          exec docker exec ci-n8n n8n "$@"
+          SHIM
+          sudo chmod +x /usr/local/bin/n8n
+          for i in $(seq 1 30); do
+            [ "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:5678/healthz)" = "200" ] && break
+            sleep 2
+          done
+          n8n --version
+
+      - name: drive real traffic through the real engine — WhatsApp + voice, hard-asserted
+        working-directory: n8n
+        env:
+          N8N_DOCKER_CONTAINER: ci-n8n
+        run: ./test/ci-verify.sh
+
+      - name: n8n + mock logs (only reached on failure)
+        if: failure()
+        run: |
+          echo "---- n8n container ----"; docker logs ci-n8n 2>&1 | tail -200 || true
+          echo "---- n8n ----"; cat /tmp/n8n.log 2>/dev/null || true
+          echo "---- mock-services ----"; cat /tmp/mock-services.log 2>/dev/null || true
+          echo "---- mock-llm ----"; cat /tmp/mock-llm.log 2>/dev/null || true

@@ -384,6 +384,12 @@ crea enrol                  # teach it your voice
 Open Obsidian and your job vault is there — every shoot, client and note as a
 plain document you can read and edit. Change something and CREA knows immediately.
 
+> **Before you let it handle everything unsupervised:** run the two-week pilot in
+> `PILOT.md` — real traffic, watched daily, a concrete go/no-go checklist. Nobody is
+> monitoring this in the background once it's handed over; the pilot is how you build
+> that trust yourself, the same way you'd trial any new hire before leaving them alone
+> with clients.
+
 ---
 
 ## 12. Talking to it

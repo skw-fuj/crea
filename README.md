@@ -29,6 +29,12 @@ into Claude Code) or [`n8n/README.md`](n8n/README.md).
 
 Full setup and operating manual: [docs/MANUAL.md](docs/MANUAL.md)
 
+## Before you rely on it
+
+Run it on real traffic for two weeks first, watching daily, before trusting it with
+every enquiry unsupervised: [docs/PILOT.md](docs/PILOT.md). Nobody's monitoring this
+for you after handover — the pilot is how you build that trust yourself.
+
 ## Using it
 
 ```

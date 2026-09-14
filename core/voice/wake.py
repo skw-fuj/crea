@@ -78,6 +78,13 @@ def matches(heard: str, phrase: str = "hey crea", threshold: float = 0.70) -> bo
     requiring it rejects most real activations. It is also anchored to the START
     of the utterance, which is what separates "hey CREA" from "I was in Korea
     last year" — the same phonetic content, in a position that isn't a command.
+
+    The exact-name check below only fires on a genuine WHOLE WORD, never a
+    fragment stitched across a word boundary — "increase" contains "crea" as
+    raw characters (in-CREA-se) but is one word, not two, and must not wake
+    on that alone. (The fuzzy pass below still can, on some words — that's a
+    known, accepted residual case; see the module docstring / config note on
+    voice.wake.match_threshold.)
     """
     h = normalise(heard)
     if not h:
@@ -85,10 +92,10 @@ def matches(heard: str, phrase: str = "hey crea", threshold: float = 0.70) -> bo
 
     name = phrase.replace(" ", "")
     name = name[3:] if name.startswith("hey") else name        # "crea"
-    head = h.replace(" ", "")[:8]                              # the wake word comes FIRST
-    if name in head:
+    if name in h.split()[:2]:                                  # the wake word comes FIRST
         return True
 
+    head = h.replace(" ", "")[:8]
     target = _collapse(name)
     hc = _collapse(head)
     for size in (len(target), len(target) + 1):
@@ -148,12 +155,19 @@ class VadWhisper(WakeDetector):
 
     def __init__(self, phrase: str, stt, window_s: float = 2.4,
                  hop_s: float = 0.8, rms_gate: float | None = None,
-                 speaker=None):
+                 speaker=None, match_threshold: float = 0.70):
         self.phrase = phrase.lower().strip()
         self.stt = stt
         self.window = int(window_s * SAMPLE_RATE)
         self.min_window = int(1.2 * SAMPLE_RATE)   # score partial buffers too
         self.hop_s = hop_s
+        # How close a transcription has to be to "crea" to count as a wake.
+        # Higher = fewer false wakes on everyday words ("increase", "career"),
+        # at the cost of needing a cleaner hearing of the real phrase. Lower =
+        # the reverse. Config-driven (voice.wake.match_threshold) because the
+        # right value depends on the room and the mic it's actually tuned
+        # against — set it on the machine that runs CREA, not anywhere else.
+        self.match_threshold = match_threshold
         # None = calibrate against the room at startup. A fixed gate is wrong in
         # both directions: too high in a quiet room and it never hears a normal
         # speaking voice; too low in a noisy one and every fan hits whisper.
@@ -294,7 +308,7 @@ class VadWhisper(WakeDetector):
                 finally:
                     path.unlink(missing_ok=True)
                 self.last_heard = heard
-                if not matches(heard, self.phrase):
+                if not matches(heard, self.phrase, threshold=self.match_threshold):
                     continue
 
                 # Speaker identity is NOT decided here. A two-second wake phrase
@@ -310,7 +324,7 @@ class VadWhisper(WakeDetector):
 
     def health(self) -> dict:
         return {"provider": "vad-whisper", "phrase": self.phrase,
-                "stt": self.stt.health()}
+                "match_threshold": self.match_threshold, "stt": self.stt.health()}
 
 
 # ------------------------------------------------------------------ audio io
@@ -356,5 +370,6 @@ def make_wake(cfg, stt, speaker=None) -> WakeDetector:
         return OpenWakeWord(cfg.get("voice.wake.model_path"),
                             cfg.get("voice.wake.threshold", 0.6))
     if provider == "vad-whisper":
-        return VadWhisper(cfg.get("identity.wake_phrase"), stt, speaker=speaker)
+        return VadWhisper(cfg.get("identity.wake_phrase"), stt, speaker=speaker,
+                          match_threshold=cfg.get("voice.wake.match_threshold", 0.70))
     raise WakeError(f"unknown wake provider: {provider}")

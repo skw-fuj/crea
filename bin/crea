@@ -79,11 +79,13 @@ def main(argv: list[str]) -> int:
         from core.brain import make_brain
         from core.connectors import status_all
         from core.voice.providers import make_stt, make_tts
+        from core.voice.wake import make_wake
         out = {"agent": cfg.get("identity.agent_name"),
                "vault": str(vault.root),
                "jobs_in_vault": len(vault.jobs()) if vault.root.exists() else 0}
         for name, fn in (("tts", lambda: make_tts(cfg).health()),
                          ("stt", lambda: make_stt(cfg).health()),
+                         ("wake", lambda: make_wake(cfg, make_stt(cfg)).health()),
                          ("brain", lambda: make_brain(cfg).health())):
             try:
                 out[name] = fn()

@@ -122,7 +122,13 @@ msg ai3 $A "40 Awaba St, Mosman";                                               
 msg ai4 $A "Saturday 2026-09-19 at 10am";                                              N=$(wait_turn "$N" || true)
 msg ai5 $A "Yes that's all correct";                                                   N=$(wait_turn "$N" || true)
 REF=$(wait_ref || true)
-[ -n "$REF" ] && pass "booking held (ref $REF)" || fail "no held-booking ref captured — owner was never notified"
+if [ -n "$REF" ]; then
+  pass "booking held (ref $REF)"
+else
+  fail "no held-booking ref captured — owner was never notified"
+  echo "  -- diagnostic: every mock call seen during the WhatsApp section --"
+  calls | python3 -c "import sys,json;[print('    ', c['method'], c['path']) for c in json.load(sys.stdin)]" || true
+fi
 if [ -n "$REF" ]; then
   msg cfm 61400000999 "CONFIRM $REF"; sleep 10
   SRC=$(job_source "BK-$REF")
@@ -159,7 +165,13 @@ sig_and_post "40 Awaba Street Mosman"
 sig_and_post "Saturday the 19th of September at 10am"
 sig_and_post "Yes that is all correct"
 VREF=$(wait_ref || true)
-[ -n "$VREF" ] && pass "voice booking held (ref $VREF)" || fail "voice call never produced a held-booking ref"
+if [ -n "$VREF" ]; then
+  pass "voice booking held (ref $VREF)"
+else
+  fail "voice call never produced a held-booking ref"
+  echo "  -- diagnostic: every mock call seen during the voice section --"
+  calls | python3 -c "import sys,json;[print('    ', c['method'], c['path']) for c in json.load(sys.stdin)]" || true
+fi
 if [ -n "$VREF" ]; then
   msg vcfm 61400000999 "CONFIRM $VREF"; sleep 10
   VSRC=$(job_source "BK-$VREF")

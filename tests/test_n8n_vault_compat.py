@@ -77,6 +77,16 @@ def main() -> int:
             "source": "whatsapp", "notes": "Side gate open. Pool + deck.",
             "status": "Booked"})
 
+        # 1b) a job note from the voice channel (v3.2) — same shape, source: "call". Proves
+        # the source-tagging fix (crea-11) is actually readable by the agentic OS, not just
+        # that n8n sent the right string over the wire.
+        _post("/job", {
+            "jobId": "BK-9Z1", "client": "Booking (via CREA)",
+            "address": "12 Voice Ave, Mosman, NSW",
+            "datetime": "2026-09-20T11:00:00", "type": "video",
+            "price": "$650", "phone": "61499990555", "email": "",
+            "source": "call", "notes": "", "status": "Booked"})
+
         # 2) a lead note, the way crea-02b writes one on a hand-off
         _post("/lead", {
             "from": "61400333444",
@@ -93,10 +103,11 @@ def main() -> int:
         v = Vault(tmp / "vault")
 
         jobs = v.jobs()
-        if not jobs:
-            failures.append("core.vault.jobs() read nothing from the n8n-written Jobs/ folder")
+        if len(jobs) < 2:
+            failures.append(f"core.vault.jobs() read {len(jobs)} of 2 expected notes from the n8n-written Jobs/ folder")
         else:
-            j = jobs[0]
+            by_id = {j.get("external_id"): j for j in jobs}
+            j = by_id.get("WA-4A2") or jobs[0]
             checks = {
                 "type == job": j.get("type") == "job",
                 "client parsed": j.get("client") == "Jane Smith",
@@ -104,10 +115,17 @@ def main() -> int:
                 "status in lifecycle": j.get("status") == "Booked",
                 "shoot_at is ISO": parse_dt(j.get("shoot_at")) is not None,
                 "tags is a list": isinstance(j.get("tags"), list),
+                "source == whatsapp": j.get("source") == "whatsapp",
             }
             for label, ok in checks.items():
                 if not ok:
                     failures.append(f"job note: {label}  (got {j!r})")
+
+            jv = by_id.get("BK-9Z1")
+            if jv is None:
+                failures.append("voice-channel job note (BK-9Z1) not found via core.vault.jobs()")
+            elif jv.get("source") != "call":
+                failures.append(f"voice-channel job note: source should be 'call', got {jv.get('source')!r}")
 
         clients = v.clients()
         if not any(c.get("type") == "client" for c in clients):

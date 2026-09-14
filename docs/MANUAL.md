@@ -540,6 +540,8 @@ they're handled or flagged rather than left for you to discover.
 | Internet drops | Voice and the vault keep working (they're local). Bookings, Drive and WhatsApp catch up after | Nothing is lost |
 | An account stops working | A key expired or was revoked. Skills needing it say exactly what's wrong rather than half-running | `crea status`, then `crea connect <name>` |
 | WhatsApp unlinks itself | Linked devices drop off after long idle. Normal, not a fault | `crea connect whatsapp`, scan again |
+| Your own WhatsApp number gets banned or restricted | Real, not hypothetical — this connects the unofficial way WhatsApp Web does (disclosed in `INSTALL.md`). No automatic recovery for a ban | `crea connect whatsapp` on a different number if it comes to that — this only affects the confirm/chase/editor skills, never the customer-facing booking number if you're running the n8n automations too (that's a separate, second WhatsApp connection — see `n8n/COUNTERMEASURES.md`) |
+| The free LLM tier (Hermes/OmniRoute) is discontinued or starts requiring payment | No special detection — `crea ask`/`crea brief` etc. will just start failing or timing out, same as any outage. `hermes status` shows the configured provider directly | Check whether it's a real outage (clears in minutes) or the tier itself is gone (persists for days) via `hermes status` and the provider's own dashboard, then point `brain.hermes_provider` / `~/.hermes/.env` at a different free or cheap paid provider — a config change, not a rebuild |
 
 **The one that would actually hurt** is losing a shoot. That's why CREA verifies
 every file copied off a card and will **never** format one — it tells you the card

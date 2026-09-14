@@ -415,7 +415,11 @@ else
   cat <<EOS
 
   ${V_OK}/${V_TOT} core checks passed, so CREA may still partly work.
-  Send this file to Tristan and he'll sort it:  $LOG
+
+  Full log:  $LOG
+  Most failures here are one of: a Homebrew formula that needs
+  "brew doctor", a model still downloading, or a missing API key —
+  ${B}crea status${N} names exactly which. docs/MANUAL.md §14 covers the rest.
 EOS
   exit 1
 fi

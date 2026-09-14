@@ -1,10 +1,58 @@
-# CREA v3.1 — verification
+# CREA v3.2.1 — verification
 
 Every workflow was driven end to end through a real n8n **2.30.7** instance against
 `vault-api/server.js`, with WAHA and the LLM endpoint stood in by `test/mock-services.js`
 (which captures every outbound call and the incidents CREA logs). `test/demo.sh` reproduces
 the run, including the failure and attack cases; `DEMO_LLM_URL`/`DEMO_LLM_KEY` point the
 assistant at a real model.
+
+## Since v3.1 (2026-09-12 → 2026-09-15) — the compose bring-up did run, for real
+
+Everything below this line happened after the v3.1 entries — they're kept as-is further down,
+but two of their own claims are now out of date and corrected here rather than silently left
+wrong: "the compose bring-up itself was not run on the build machine" (Packaging, below) and
+WhatsApp/WAHA pairing being "not exercised" (Not exercised, below) were both true in
+2026-09-09 and are **not true anymore**.
+
+- **PR #12** — a live run against real (not mocked) n8n found 3 real bugs no isolated test
+  could see: `require('crypto')` blocked by n8n's Code-node sandbox, a hand-authored Switch
+  node crashing n8n's executor, an HTTP node's response replacing `$json` instead of merging.
+  Fixed; re-verified end to end (voice property-intake → hold → owner CONFIRM → job with
+  `source:"call"`), WhatsApp suite unchanged.
+- **PR #13** — the 7 automations that had only ever "not errored in passing" (5 schedule-only,
+  2 webhook-triggered) driven against real n8n with temporary webhook triggers; all correct
+  against real decisions on mock data. `core.vault` extended to prove a voice-channel
+  `source:"call"` job round-trips correctly, not just that n8n sends the right string.
+- **PR #14 / #15** — a live-n8n CI gate added: every push now starts the actual pinned
+  `n8nio/n8n:2.30.7` Docker image (not npm-installed n8n) and drives the full WhatsApp + voice
+  booking flow with 11 hard assertions, confirmed via `gh run watch` on GitHub's real
+  infrastructure. Caught real bugs on the way to green: a fixed `sleep` flaky under CI load, a
+  `set -e` script death on a slow turn, test credentials that were referenced but never
+  actually created (this Mac's n8n database had carried one silently since an earlier run).
+- **PR #16 — the compose bring-up itself, actually run.** `go-live.sh` had never once been
+  executed against a real Docker Compose stack the entire project. Ran it from true scratch
+  (torn-down volumes, freshly pulled `n8n:2.30.7` + `vault-api` + `waha:noweb-arm`). Found the
+  most severe bug of the project: `build_clean_env`'s last line was a bare conditional with no
+  `return 0` after it — under `set -e`, with Twilio blank (every normal install), that silently
+  killed the whole script right after "3/9 fill workflows," no error, no message. Also found a
+  Docker Desktop bind-mount file-sync race in credential import. Both fixed; re-verified in one
+  continuous fresh run: all 9 install steps clean, **WhatsApp/WAHA reached `SCAN_QR_CODE` for
+  real**, `./go-live.sh --test` → "the assistant handled it — CREA is live."
+- **PR #17** — `--status`'s health dashboard, found printing empty every time (not
+  intermittently, as first assumed): a pipe combined with a heredoc on one command meant
+  python3 got the heredoc as stdin, not the piped health JSON, and threw a silently-swallowed
+  `SyntaxError`. Fixed by passing the JSON through an env var instead. Verified 10/10 against a
+  real running vault-api container.
+- **core/ sweep (2026-09-15, no PR — nothing needed fixing)** — the Agentic OS (`crea` CLI) had
+  never been run on any Mac either. Built an isolated scratch install, ran `init`/`fixtures`,
+  all 22 skills against real fixture data, every module import, the existing test suite, and a
+  real end-to-end `crea ask` round trip through the real local Hermes brain. Zero bugs found.
+  One characterized-but-not-patched finding: `core/voice/wake.py`'s fuzzy wake-word matcher
+  false-positives on some common phrases ("increase the" ties the real wake phrase) — a fix was
+  tried and rejected because it broke "paycray," the documented primary mishearing pattern; not
+  shippable without real-audio validation this environment can't provide.
+- **PR #18** — `docs/PILOT.md` added: a real-traffic pilot Connell runs and self-judges before
+  trusting CREA with every enquiry unsupervised, since nothing above substitutes for that.
 
 ## v3.1 booking flow (2026-09-10) — verified against a live model (Groq `openai/gpt-oss-120b`)
 
@@ -110,14 +158,17 @@ WhatsApp Web). Verified against a live model:
 The one caveat is inherent to any WhatsApp-Web-style tool: it is an unofficial connection
 (documented in INSTALL.md).
 
-## Packaging (2026-09-09)
+## Packaging (2026-09-09, superseded 2026-09-15 — see "Since v3.1" above)
 
 CREA v2 ships as a Docker Compose stack (`deploy/docker-compose.yml` — n8n + WAHA +
-vault-api) driven by `./go-live.sh`. **The compose bring-up itself was not run on the build
-machine** (it could not run Docker). It was validated with `docker compose config` (full env
-interpolation + volume/port resolution), and every workflow, the vault API, `fill-config.sh`
-and the credential/import logic were verified against a host n8n 2.30.7. `./go-live.sh --test`
-performs the same end-to-end assistant check on the buyer's Mac and is the acceptance gate.
+vault-api) driven by `./go-live.sh`. At the time this was written, the compose bring-up itself
+had not been run on the build machine (it could not run Docker) — validated only with
+`docker compose config` plus every workflow/vault-api/fill-config.sh/credential-import logic
+verified against a host n8n. **That gap is closed as of PR #16/#17**: the actual, unmodified
+`go-live.sh` has now been run against a real fresh Docker Compose stack from true scratch,
+twice, finding and fixing two real bugs in the process. `./go-live.sh --test` remains the
+acceptance gate for the buyer's own Mac — real accounts and real traffic there are still
+outside anything a build machine can substitute for (see `docs/PILOT.md`).
 
 ## Result — all workflows reach their designed end
 
@@ -154,11 +205,14 @@ performs the same end-to-end assistant check on the buyer's Mac and is the accep
 
 ## Not exercised (needs the buyer's machine + accounts)
 
-WhatsApp delivery through a live WAHA container + the QR pairing · the host watchdog's
-launchd trigger (the watchdog *script* is exercised, the schedule is not) · the card-pipeline
-resume leg · Google Calendar / Drive · the live Acuity / Apify / Higgsfield APIs. Request
-shapes match their docs. `./go-live.sh --test` covers the assistant path on the buyer's Mac;
-confirm Higgsfield's endpoint against a live key.
+**Updated 2026-09-15 — WhatsApp/WAHA and the full compose bring-up are no longer on this
+list; see "Since v3.1" above.** Still not exercised: the host watchdog's launchd trigger (the
+watchdog *script* is exercised, the schedule is not) · the card-pipeline resume leg · Google
+Calendar / Drive · the live Acuity / Apify / Higgsfield APIs · real Twilio/Cloudflare call
+traffic. Request shapes match their docs. `./go-live.sh --test` covers the assistant path;
+confirm Higgsfield's endpoint against a live key. This is exactly the gap `docs/PILOT.md`
+exists to close — none of it can be closed by more code-level testing, only real accounts and
+real traffic on the buyer's own Mac.
 
 ## The Docker stack
 

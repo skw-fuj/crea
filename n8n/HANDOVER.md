@@ -1,4 +1,4 @@
-# CREA v3.1 — handover
+# CREA v3.2.1 — handover
 
 Hi Connell — this is CREA's automation layer: a WhatsApp assistant that answers booking
 questions, asks about the property, checks your calendar, reads the booking back to the

@@ -1,4 +1,4 @@
-# CREA v3.1 — n8n Hands Layer · how it fits together
+# CREA v3.2.1 — n8n Hands Layer · how it fits together
 
 **To install:** follow `INSTALL.md`. This file is the reference for what the pieces are and
 how they connect — read it once you're up, or when you want to change something.

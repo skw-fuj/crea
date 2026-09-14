@@ -1,17 +1,20 @@
-# Handover message to Connell — v1.1 (final)
+# Handover message to Connell — v3.2.1
 
-Email version below; short version after.
+Email version below; short version after. Rewritten for v3.2.1 — the original v1.1 draft only
+covered the voice assistant; the WhatsApp/voice booking automations and the pilot step below
+didn't exist yet.
 
 ---
 
 ## Email
 
-**Subject:** CREA is ready — here's everything to run it
+**Subject:** CREA is ready — here's everything to run it, and one thing before you rely on it
 
 Hey Connell,
 
-CREA's finished. Every skill from the plan you sent me in August is built and
-working. Here's everything you need.
+CREA's built and verified. Everything from the August plan, plus the WhatsApp booking
+assistant and the shoot-ops automations we added after, plus phone bookings if you want them.
+Here's everything you need — and one honest ask before you hand it your whole enquiry inbox.
 
 ---
 
@@ -28,36 +31,59 @@ https://github.com/skw-fuj/crea
 
 ---
 
-**TO INSTALL — one line**
+**TO INSTALL — two parts, the second one optional**
 
-Plug the Mac Mini in, finish Apple's normal setup, open **Terminal**
-(press ⌘ Space, type "terminal", hit Enter), and paste this:
+**Part 1 — the voice assistant.** Plug the Mac Mini in, finish Apple's normal setup, open
+**Terminal** (press ⌘ Space, type "terminal", hit Enter), and paste this:
 
 ```
 curl -fsSL https://raw.githubusercontent.com/skw-fuj/crea/main/install.sh | bash
 ```
 
-Then walk away for about twenty minutes. It installs everything itself. Safe to
-run again any time — it leaves alone whatever's already there.
+Walk away for about twenty minutes. Safe to run again any time — it leaves alone whatever's
+already there.
+
+**Part 2 — the WhatsApp booking assistant and shoot-ops automations.** Optional; the voice
+assistant works fine without it. If you want a customer's WhatsApp message to be turned into a
+held booking automatically, this is that piece — see `n8n/HANDOVER.md` in the code. About an
+hour, mostly creating a couple of free accounts.
 
 ---
 
-**THE FIVE ACCOUNTS**
+**THE ACCOUNTS — two WhatsApp numbers, not one**
 
-Near the end it asks about these. It opens each page in your browser for you, you
-paste the key, and it checks the key actually works before saving it. Skip any of
-them and add them later with `crea connect`.
+Part 1 asks about five accounts near the end. It opens each page in your browser for you, you
+paste the key, and it checks the key actually works before saving it. Skip any and add them
+later with `crea connect`.
 
 | Account | Where exactly | What you copy |
 |---|---|---|
 | Acuity | Left sidebar → Business Settings → Integrations → API → view credentials | User ID (the numeric one) and API Key |
 | Google | console.cloud.google.com → APIs & Services → Credentials → Create credentials → OAuth client ID → Desktop app | Client ID + secret, then click Allow |
-| WhatsApp | Your phone: WhatsApp → Settings → Linked Devices → Link a Device | Nothing — you scan a QR code |
+| WhatsApp (**your own number**) | Your phone: WhatsApp → Settings → Linked Devices → Link a Device | Nothing — you scan a QR code |
 | Higgsfield | Your account settings | API key |
 | Apify | console.apify.com → Settings → Integrations | Personal API token |
 
-Your keys go into one locked file on your own Mac. Not in the settings file,
-never uploaded, and I never see them.
+That WhatsApp pairing is **your own personal number** — it's what CREA uses to confirm
+tomorrow's shoots on your behalf, chase an unanswered booking, and message your editor. It's
+not the number customers book through.
+
+If you install Part 2, it asks for a **second, separate WhatsApp number** — the one customers
+actually message to book (a cheap spare SIM works well, so your own number never touches it),
+plus a free Groq API key. `n8n/HANDOVER.md` walks through both.
+
+Your keys go into locked files on your own Mac. Not in the settings file, never uploaded, and
+I never see them.
+
+---
+
+**PHONE BOOKINGS — entirely optional, on top of Part 2**
+
+Same assistant answers a phone call instead of a WhatsApp message. Needs a Twilio number
+(small per-minute cost once it's live, no monthly fee) and a free Cloudflare account.
+`n8n/VOICE.md` walks through it, and **`./go-live.sh --test-voice`** proves the whole thing
+works — signature verification, the whole call flow — before you ever point a real number at
+it. Skip this section entirely if you just want WhatsApp; nothing else changes.
 
 ---
 
@@ -80,6 +106,20 @@ crea voice-check on             then it only answers you
 
 Or just talk to it: **"Hey CREA, what have I got on today?"**
 
+If you installed Part 2: `./go-live.sh --status` is the equivalent for the booking side.
+
+---
+
+**BEFORE YOU LET IT HANDLE EVERYTHING — the one thing I'm asking you to actually do**
+
+Once installed, run the two-week pilot in `docs/PILOT.md`: real WhatsApp traffic (start with
+messaging it yourself), watched daily with a two-minute check, a checklist to actually tick
+off rather than eyeball. I'm not going to be monitoring this for you day to day once it's
+handed over — that's the whole point of it being yours. The pilot is how *you* build the
+confidence to trust it with every enquiry unsupervised, rather than just assuming it from the
+fact that it was built carefully. It also tells you fast if something needs adjusting — a
+wrong price, an awkward reply — while the stakes are still low.
+
 ---
 
 **WHAT'S RUNNING UNDERNEATH**
@@ -87,43 +127,35 @@ Or just talk to it: **"Hey CREA, what have I got on today?"**
 All installed for you. Listed so nothing's a mystery.
 
 - **hermes** — runs the skills and the schedule
-- **n8n** — the visual connections out to Acuity, Google and WhatsApp
+- **n8n** — the visual automations for booking and shoot-ops (Part 2)
 - **whisper.cpp** — turns your speech into text, on the machine
 - **Pocket TTS** — CREA's voice, on the machine, 26 voices to pick from
 - **ffmpeg / exiftool** — Reels, and reading shot times off your files
 - **Obsidian** — where you read and edit your own job vault
 - **crea** — the command that drives all of it
 
-Acuity, Google, Higgsfield and Apify are reached over their normal web APIs.
-WhatsApp connects the way WhatsApp Web does. Nothing exotic, nothing you're
-locked into.
+Acuity, Google, Higgsfield and Apify are reached over their normal web APIs. Both WhatsApp
+numbers connect the way WhatsApp Web does. Nothing exotic, nothing you're locked into.
 
 ---
 
 **A FEW THINGS THAT CAME OUT OF TESTING**
 
-These are in version 1.1 because they only turn up once something actually runs
-on a machine that has to stay up for months.
+**It can learn your voice.** By default CREA answers anyone who says its name. `crea enrol`
+takes about a minute and after that it only answers you. Off unless you turn it on — worth
+leaving off if an assistant or your editor should be able to ask it things too.
 
-**It can learn your voice.** By default CREA answers anyone who says its name.
-`crea enrol` takes about a minute and after that it only answers you. It's off
-unless you turn it on — worth leaving off if an assistant or your editor should
-be able to ask it things too.
+**It keeps the Mac awake.** An always-on assistant that goes to sleep isn't always on. It
+handles that itself without changing your own power settings.
 
-**It keeps the Mac awake.** An always-on assistant that goes to sleep isn't
-always on. It handles that itself without changing your own power settings.
+**The clock follows daylight saving.** Everything runs on Sydney time properly, rather than
+trusting whatever timezone got picked during first-time setup.
 
-**The clock follows daylight saving.** Everything runs on Sydney time properly,
-rather than trusting whatever timezone got picked during first-time setup. If
-that were wrong your morning brief would fire at the wrong hour and invoices
-would be dated a day out — and it wouldn't look like a clock problem.
+**Section 13 of the manual covers using it from your phone** — three ways, two of them free,
+and an honest answer on whether the paid option is worth it.
 
-**Section 13 covers using it from your phone** — three ways, two of them free,
-and an honest answer on whether the paid option is worth it. Don't decide on day
-one; give it a fortnight first.
-
-**Section 14 covers what to do when something breaks** — the five things that
-catch every setup like this, and which ones are already handled.
+**Section 14 covers what to do when something breaks** — read what `crea status` prints, it
+names the specific thing rather than just "unhealthy."
 
 ---
 
@@ -131,37 +163,32 @@ catch every setup like this, and which ones are already handled.
 
 The **voice is real** — that's CREA, generated on the machine, no subscription.
 
-But **every job, client and dollar figure on those screens is made up.** Aisha
-Rahman doesn't exist, the $7,170 isn't real. It's test data so the thing has
-something to run against before your accounts are connected. The layout is a
-proposal too — if a screen's missing something you'd use, or something on it is
-useless to you, now's the cheap time to say so.
+But **every job, client and dollar figure on those screens is made up**, until your own
+accounts are connected. The layout is a proposal too — if a screen's missing something you'd
+use, now's the cheap time to say so.
 
 ---
 
 **WHAT IT COSTS**
 
-$0–15 a month, against the $25–100 the original plan budgeted. The voice runs on
-the machine and the thinking goes through free tiers. I measured that on a 2020
-MacBook, deliberately slower than what you'll be using.
+$0–15 a month for the voice assistant and WhatsApp booking — the voice runs on the machine and
+the thinking goes through free tiers. If you turn on phone bookings, add Twilio's per-minute
+call cost on top (no monthly fee, only pay for what's actually used).
 
 ---
 
 **WHAT I NEED FROM YOU**
 
-1. **Order the Mac Mini — 16GB of memory.** This is the only spec that matters.
-   8GB genuinely isn't enough and you'd notice it daily. Refurbished M1 is fine
-   if it's 16GB, otherwise the base M4.
-2. **Listen to the voice** and tell me if it suits you. There are 26 built in, so
-   if that one grates we just change it.
-3. **Look at the screens** and tell me what you'd change.
-4. **Decide on WhatsApp** — your existing number, or a second SIM for CREA. The
-   manual has what you need to choose.
+1. **Order the Mac Mini — 16GB of memory**, if you haven't already. 8GB genuinely isn't
+   enough. Refurbished M1 is fine if it's 16GB, otherwise the base M4.
+2. **Run the pilot** in `docs/PILOT.md` before relying on it for real — see above.
+3. **Listen to the voice** and tell me if it suits you.
+4. **Look at the screens** and tell me what you'd change.
+5. **Decide on WhatsApp** — your existing number for the automations, or a second SIM. The
+   manual and `n8n/BOOKING.md` have what you need to choose.
 
-One last thing: it's pronounced **kree-ah**, not "cray". Matters more than it
-sounds like, because the speech recognition is tuned for it.
-
-Once the Mini turns up it's about twenty minutes to a working system.
+One last thing: it's pronounced **kree-ah**, not "cray". Matters more than it sounds like,
+because the speech recognition is tuned for it.
 
 Tris
 
@@ -169,34 +196,31 @@ Tris
 
 ## WhatsApp / short version
 
-> Hey mate, CREA's done — everything from the August plan, built and working.
+> Hey mate, CREA's built and verified — the voice assistant, the WhatsApp booking automations,
+> phone bookings if you want them.
 >
 > Manual: https://skw-fuj.github.io/crea/
 > Interface (tap the orange circle, it talks): https://skw-fuj.github.io/crea/shell/
 > Code: https://github.com/skw-fuj/crea
 >
-> To install: plug the Mini in, open Terminal, paste this one line, walk away for
-> twenty minutes —
+> To install: plug the Mini in, open Terminal, paste this one line, walk away for twenty
+> minutes —
 >
 > `curl -fsSL https://raw.githubusercontent.com/skw-fuj/crea/main/install.sh | bash`
 >
-> It installs the lot, then asks about five accounts (Acuity, Google, WhatsApp,
-> Higgsfield, Apify). It opens each page for you and checks the keys work. Skip
-> any and add them later.
+> It asks about five accounts (Acuity, Google, your own WhatsApp, Higgsfield, Apify), opens
+> each page for you, checks the keys work. The WhatsApp booking automations are a separate
+> optional step after — `n8n/HANDOVER.md` — that one uses a *second* WhatsApp number, the one
+> customers actually message.
 >
 > Then just talk to it: "Hey CREA, what have I got on today?"
 >
-> It can also learn your voice so it only answers you, it keeps the Mac from
-> sleeping, and there are 26 voices if the default one grates.
+> **One real ask:** run the two-week pilot in `docs/PILOT.md` before you trust it with every
+> enquiry — real traffic, a daily two-minute check, a checklist. I won't be watching it for
+> you day to day once it's handed over, so that pilot is how you build the confidence yourself.
 >
-> About $0–15/month instead of the $25–100 we planned, and your WhatsApp number
-> stays exactly as it is.
->
-> Heads up: the voice on that second link is real, but all the jobs and dollar
-> figures are made-up test data, and the layout's a proposal — tell me what you'd
-> change.
->
-> Main thing: **order the Mini with 16GB.** Not 8. It's the one spec that matters.
+> About $0–15/month for WhatsApp, plus a small per-call cost only if you turn on phone
+> bookings — no monthly fee for that part.
 >
 > (Pronounced kree-ah, not cray 😄)
 
@@ -204,7 +228,10 @@ Tris
 
 ## Before sending
 
-- [x] Both artifact links set to anyone-with-the-link — verified unauthenticated
-- [x] GitHub repo public — verified unauthenticated
-- [x] Manual and shell both stamped v1.1
+- [ ] Both artifact links set to anyone-with-the-link — reverify unauthenticated (last checked
+      for the v1.1 draft, not since)
+- [ ] GitHub repo public — reverify unauthenticated
+- [x] Manual and this message both stamped v3.2.1
 - [ ] Decide whether to raise pricing for the build. This draft deliberately does not.
+- [ ] Confirm the Mac Mini has actually been ordered/arrived before sending — item 1 assumes
+      it hasn't, delete if it has

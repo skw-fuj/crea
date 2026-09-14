@@ -1,0 +1,77 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  static-checks:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: every workflow JSON is structurally valid (no dangling node refs)
+        run: |
+          cd n8n/workflows
+          python3 - <<'PY'
+          import json, glob, sys
+          bad = False
+          for path in sorted(glob.glob("*.json")):
+              wf = json.load(open(path))
+              if "nodes" not in wf:
+                  continue
+              names = {n["name"] for n in wf["nodes"]}
+              for src, c in wf.get("connections", {}).items():
+                  if src not in names:
+                      print(f"{path}: connection source '{src}' is not a node"); bad = True
+                  for out in c.get("main", []):
+                      for e in out:
+                          if e["node"] not in names:
+                              print(f"{path}: connection target '{e['node']}' is not a node"); bad = True
+          sys.exit(1 if bad else 0)
+          PY
+
+      - name: fill-config.sh resolves every {{TOKEN}} against the shipped template
+        run: |
+          cd n8n
+          cp config.example.env /tmp/ci-config.env
+          ./fill-config.sh /tmp/ci-config.env workflows
+
+      - name: go-live.sh and demo.sh parse cleanly
+        run: |
+          bash -n n8n/go-live.sh
+          bash -n n8n/test/demo.sh
+
+      - name: docker-compose.yml is valid (with the voice profile active)
+        run: |
+          cd n8n/deploy
+          cat > /tmp/ci-compose.env <<'EOF'
+          N8N_ENCRYPTION_KEY=test
+          CREA_WAHA_API_KEY=test
+          CREA_VAULT_DIR_ABS=/tmp/x
+          CREA_WAHA_IMAGE=devlikeapro/waha:noweb
+          CREA_WAHA_ENGINE=NOWEB
+          CREA_CF_TUNNEL_TOKEN=test
+          COMPOSE_PROFILES=voice
+          EOF
+          docker compose --project-directory . --env-file /tmp/ci-compose.env config -q
+
+      - name: no secrets committed (config.env / .n8n-key / deploy/.env must never be tracked)
+        run: |
+          if git ls-files | grep -E '(^|/)config\.env$|\.n8n-key$|deploy/\.env$'; then
+            echo "a real secrets file is tracked in git — see n8n/.gitignore"; exit 1
+          fi
+
+  vault-compat:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - name: core.vault reads back every note n8n writes (job, client, lead — both channels)
+        run: python3 tests/test_n8n_vault_compat.py

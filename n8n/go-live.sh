@@ -76,6 +76,7 @@ build_clean_env(){
   else printf 'CREA_VAULT_DIR_ABS=crea_vault\n' >> "$ENVCLEAN"; fi
   # voice calls need cloudflared (Twilio must reach n8n publicly — WAHA just polls out)
   [ -n "$(cfg CREA_TWILIO_ACCOUNT_SID)" ] && printf 'COMPOSE_PROFILES=voice\n' >> "$ENVCLEAN"
+  return 0
 }
 
 # ---------------------------------------------------------------------------
@@ -284,7 +285,15 @@ if hkey: c.append({"id":"creahiggscred","name":"CREA Higgsfield","type":"httpHea
     "data":{"name":"X-Api-Key","value":hkey}})
 json.dump(c,open(out,"w"))
 PY
-n8n_cli import:credentials --input=/workflows/.creds.json >/dev/null 2>&1 && ok "credentials loaded into n8n" \
+# Docker Desktop's host<->container file sync (bind mount) can lag by a beat right after
+# the file above is written — retry briefly rather than fail on a race that isn't really
+# an error. Real failures (bad JSON, n8n not up) still fail after this short window.
+credok=1
+for _i in 1 2 3 4 5; do
+  n8n_cli import:credentials --input=/workflows/.creds.json >/dev/null 2>&1 && { credok=0; break; }
+  sleep 1
+done
+[ "$credok" = 0 ] && ok "credentials loaded into n8n" \
   || warn "credential import returned an error — ./go-live.sh --logs n8n"
 rm -f "$CREDS"; trap - EXIT
 

@@ -62,6 +62,16 @@ for i in $(seq 1 20); do
   [ "$code" = "200" ] && break; sleep 2
 done
 pass "n8n up, both inbound webhooks registered"
+if [ -n "${N8N_DOCKER_CONTAINER:-}" ]; then
+  # A wrong assumption here (that --network host makes localhost:5699/5701 reachable
+  # FROM INSIDE the container) would explain every downstream symptom at once — check
+  # it directly rather than inferring it from what fails later.
+  REACH=$(docker exec "$N8N_DOCKER_CONTAINER" node -e "
+    fetch('http://localhost:5699/waha/api/version').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(2))
+  " >/dev/null 2>&1; echo $?)
+  [ "$REACH" = "0" ] && pass "n8n container can reach the mock services on localhost" \
+    || fail "n8n container CANNOT reach localhost:5699 (exit $REACH) — --network host isn't giving it host networking"
+fi
 
 msg() { curl -s -o /dev/null -X POST $N8N/webhook/crea-wa-inbound -H 'content-type: application/json' \
   -d "{\"event\":\"message\",\"session\":\"default\",\"payload\":{\"id\":\"$1\",\"from\":\"$2@c.us\",\"body\":\"$3\",\"fromMe\":false,\"type\":\"chat\"}}"; }

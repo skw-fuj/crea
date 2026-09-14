@@ -38,10 +38,11 @@ jobs:
           cp config.example.env /tmp/ci-config.env
           ./fill-config.sh /tmp/ci-config.env workflows
 
-      - name: go-live.sh and demo.sh parse cleanly
+      - name: go-live.sh, demo.sh, ci-verify.sh parse cleanly
         run: |
           bash -n n8n/go-live.sh
           bash -n n8n/test/demo.sh
+          bash -n n8n/test/ci-verify.sh
 
       - name: docker-compose.yml is valid (with the voice profile active)
         run: |
@@ -75,3 +76,43 @@ jobs:
           python-version: "3.x"
       - name: core.vault reads back every note n8n writes (job, client, lead — both channels)
         run: python3 tests/test_n8n_vault_compat.py
+
+  # The gate that actually matters. static-checks and vault-compat catch typos and
+  # unresolved tokens; this catches what only a real, running n8n engine can surface —
+  # a hand-authored node n8n's own executor chokes on, a Code-node sandbox restriction,
+  # an execution-order/$json-replacement gotcha. All 3 real bugs in PR #12 were found
+  # exactly this way, by hand, before this job existed. No real Twilio/Groq/WhatsApp
+  # account needed — n8n.test/mock-services.js + mock-llm.js stand in for everything
+  # outside n8n itself, and n8n/test/ci-verify.sh hard-asserts the outcome.
+  live-n8n:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: install n8n (pinned to the version docker-compose.yml ships)
+        run: npm install -g n8n@2.30.7
+
+      - name: drive real traffic through the real engine — WhatsApp + voice, hard-asserted
+        working-directory: n8n
+        env:
+          # n8n's Code-node sandbox blocks require('crypto') unless explicitly allowed —
+          # the exact bug PR #12 found. This is the one thing a future workflow author
+          # could silently break again; CI now fails immediately if they do.
+          NODE_FUNCTION_ALLOW_BUILTIN: crypto
+          N8N_DIAGNOSTICS_ENABLED: "false"
+          N8N_PERSONALIZATION_ENABLED: "false"
+          N8N_SECURE_COOKIE: "false"
+        run: ./test/ci-verify.sh
+
+      - name: n8n + mock logs (only reached on failure)
+        if: failure()
+        run: |
+          echo "---- n8n ----"; cat /tmp/n8n.log 2>/dev/null || true
+          echo "---- mock-services ----"; cat /tmp/mock-services.log 2>/dev/null || true
+          echo "---- mock-llm ----"; cat /tmp/mock-llm.log 2>/dev/null || true

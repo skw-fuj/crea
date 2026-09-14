@@ -32,6 +32,26 @@ curl -sf localhost:5699/waha/api/version >/dev/null && pass "mock-services up" |
 echo "2/6  fill test config + import + activate + restart n8n…"
 ./fill-config.sh test/test.config.env workflows >/dev/null
 python3 test/attach-test-creds.py workflows/_filled >/dev/null
+# attach-test-creds.py only REFERENCES these credential IDs on each node — it has always
+# assumed they already exist in n8n's credential store. On a long-lived dev instance
+# (this Mac) they do, left over from an earlier go-live.sh run — which is exactly why this
+# gap was invisible until a genuinely fresh n8n database (CI) exposed it: the httpRequest
+# node can't resolve a credential that was never created, and fails immediately (not a
+# timeout) with the misleading-sounding "all-endpoints-failed". Actually create them here,
+# same shape go-live.sh's own credential-import step uses.
+OMNI_KEY=$(grep -E '^CREA_OMNIROUTE_KEY=' test/test.config.env | cut -d= -f2)
+python3 - "$OMNI_KEY" <<'PY' > workflows/_filled/.ci-creds.json
+import json, sys
+key = sys.argv[1]
+creds = [
+    {"id": "creaomniroutecred", "name": "CREA OmniRoute", "type": "httpHeaderAuth",
+     "data": {"name": "Authorization", "value": "Bearer " + key}},
+    {"id": "creaomniroutecred2", "name": "CREA OmniRoute 2", "type": "httpHeaderAuth",
+     "data": {"name": "Authorization", "value": "Bearer " + key}},
+]
+print(json.dumps(creds))
+PY
+n8n import:credentials --input=workflows/_filled/.ci-creds.json >/dev/null 2>&1
 n8n import:workflow --separate --input=workflows/_filled/ >/dev/null 2>&1
 for id in creawasend creallm creawainbound creabookingagent creaaiassistant creaacuityintake \
           creacardpipeline creaselfcheck creashootconfirm creachasenoreply creamondayinvoice \
@@ -114,13 +134,9 @@ for c in json.load(sys.stdin):
 
 echo "3/6  WhatsApp — full property-intake -> readback -> hold -> owner CONFIRM -> Acuity…"
 curl -s localhost:5699/_reset >/dev/null
-echo "  -- diagnostic: LLM circuit state before any real turn is sent --"
-curl -s localhost:5699/vault/llm/state | python3 -m json.tool | sed 's/^/    /' || true
 A=61400556677
 N=0
 msg ai1 $A "Hi, I'd like a listing video for a house";                                N=$(wait_turn "$N" || true)
-echo "  -- diagnostic: LLM circuit state after turn 1 --"
-curl -s localhost:5699/vault/llm/state | python3 -m json.tool | sed 's/^/    /' || true
 msg ai2 $A "4 bedrooms, 2 bathrooms, double garage, 2 levels, about 380 sqm, pool";    N=$(wait_turn "$N" || true)
 msg ai3 $A "40 Awaba St, Mosman";                                                      N=$(wait_turn "$N" || true)
 msg ai4 $A "Saturday 2026-09-19 at 10am";                                              N=$(wait_turn "$N" || true)

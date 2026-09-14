@@ -279,9 +279,27 @@ once everything was copied. It won't, and it ships with that disabled.
 Until Drive confirms the upload, that card is the only copy of a paid shoot in
 existence. Every other failure in this system costs you an inconvenience; this
 one costs you a job, a client, and a reputation. CREA verifies every copy and
-then *tells you* the card is safe to format. Once you've watched it get that
-right a dozen times we can move it to `"ask"`, and eventually `"auto"` if you
-want. That's your call to make later, not a default to inherit now.
+then *tells you* the card is safe to format. `format_card` is yours to change
+whenever you've watched it get that right enough times to trust it — `"ask"`
+prompts before formatting, `"auto"` does it without asking. No one else needs
+to be involved in that decision; it's a one-line edit in the settings file.
+
+**How to actually verify this on your own card, before you trust it:**
+
+1. Shoot something disposable (or copy a few real photos onto a spare/old card)
+   and plug it in.
+2. `crea card` — it detects the card, copies everything off, and reports what
+   it found. Watch for it splitting into the right number of shoots if you
+   shot more than one session.
+3. Check the destination folder (Drive, per your `drive_root_folder_id`) — every
+   file that was on the card should be there before you do anything else.
+4. `crea card-status` — this is the one that actually answers "is it safe to
+   format": it re-verifies the copies rather than trusting its own earlier
+   report. Only once this says safe should the card be formatted, and even
+   then CREA won't do it for you on the default `"never"` setting — you
+   format it yourself, in-camera or on the Mac, once you've checked it.
+5. Do this enough times, on your actual gear, that you'd trust it with a real
+   paying job's only copy — that's the bar, not a fixed number of runs.
 
 ---
 
@@ -428,7 +446,8 @@ recording is discarded once understood.
 |---|---|
 | No response at all | `crea status` — reports honestly which part is down |
 | Never wakes up | Check mic permission. Then check the input device — a connected iPhone or headset can quietly steal it |
-| Wakes at the wrong times | Tuned to accept near-misses rather than miss you. Say the word and I'll tighten it |
+| Wakes at the wrong times (e.g. on "career" or "that's great") | Tuned to accept near-misses rather than miss you. `crea status` shows the current `match_threshold` under `wake`. Raise `voice.wake.match_threshold` in the settings file (try 0.75–0.80), restart the voice loop, say a few real "Hey CREA"s to make sure it still catches you before settling on a value. One word this won't fix: **"increase"** contains "crea" as literal letters inside it (in-CREA-se) — no threshold separates that from the real word, it's a known limit, not a bug you can tune away |
+| Missing real "Hey CREA"s | The opposite adjustment — lower `voice.wake.match_threshold` (try 0.60–0.65) |
 | Hears you but answers oddly | Expected early. It only knows the vault — connecting Acuity and Google makes answers real |
 
 ### Making it answer only you

@@ -80,8 +80,10 @@
       "provider": "vad-whisper",
       "model_path": "~/crea/var/models/hey_crea.onnx",
       "threshold": 0.6,
+      "match_threshold": 0.70,
       "_note": "Wake detection is fully on-device. No audio leaves the machine until the phrase fires.",
       "_provider_note": "vad-whisper works on day one with no training. Switch to 'openwakeword' only once a trained hey_crea.onnx exists at model_path \u2014 it is lower CPU but needs that file.",
+      "_match_threshold_note": "vad-whisper ONLY (openwakeword uses 'threshold' above instead \u2014 a model confidence score, different scale). How close a heard phrase has to be to 'crea' to count as a wake. Raise it (try 0.75-0.80) if it's answering on ordinary words like 'increase' or 'career'; lower it (try 0.60-0.65) if it's missing real 'Hey CREA's. Tune this on the actual machine, in the actual room \u2014 run 'crea status' to see the current value, say the wake phrase a few times, adjust, restart the voice loop, repeat. No code change needed.",
       "speaker_verification": {
         "enabled": false,
         "threshold": 0.75,

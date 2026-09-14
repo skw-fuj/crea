@@ -1,7 +1,9 @@
 # CREA — Build Manual
 
-**Cfilms Real Estate Adviser** · Version 1.1 · 25 August 2026
-Prepared for Connell Saputra. Supersedes the plan of 17 August 2026.
+**Cfilms Real Estate Adviser** · Version 3.2.1 · 15 September 2026
+Prepared for Connell Saputra. Supersedes the plan of 17 August 2026. Originally shipped as
+v1.1 (25 August 2026); this revision covers the WhatsApp/voice booking automations, the
+go-live.sh install verification, and the pilot protocol added since.
 
 An always-on AI adviser that answers out loud, runs your booking pipeline, sorts
 your cards, and keeps the admin off your plate.
@@ -360,8 +362,9 @@ file is never overwritten.
 
 It won't fail silently. Every step reports whether it actually did something, was
 already done, or failed — and at the end it re-checks the core components rather
-than assuming they came up. If anything is broken it says exactly what, writes a
-log, and asks you to send it to me.
+than assuming they came up. If anything is broken it says exactly what and where
+the log is — `crea status` names the specific thing to fix, and §14 below covers
+the common causes.
 
 ### The moment it finishes
 
@@ -525,7 +528,9 @@ is safe and leaves the decision with you.
 
 **If something's wrong and you can't tell what:** run `crea status`. It reports
 what's actually working rather than what's supposed to be, including whether the
-Mac's clock disagrees with CREA's. Send me what it prints.
+Mac's clock disagrees with CREA's — read what it prints line by line, it names the
+specific thing that's wrong rather than just "unhealthy." `OPERATIONS.md` §9 and
+`docs/PILOT.md`'s mid-pilot section cover what to do about each kind of failure.
 
 ---
 
@@ -554,6 +559,10 @@ for months.
 ---
 
 ## 16. Next
+
+> This list is from the original v1.1 handoff — if the Mac Mini's already ordered and CREA's
+> already installed, skip straight to **`docs/PILOT.md`**: the one thing that's actually new
+> and actually required before relying on CREA for every enquiry unsupervised.
 
 1. **Order the Mac Mini — 16 GB.** Everything waits on this, and it's the one
    spec that matters. Refurbished M1 is fine if it's 16 GB; a new base M4 is the

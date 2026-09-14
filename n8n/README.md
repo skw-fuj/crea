@@ -1,4 +1,4 @@
-# CREA v3.1 — n8n Hands Layer
+# CREA v3.2.1 — n8n Hands Layer
 
 A **WhatsApp AI booking assistant** plus the shoot-ops automations (Acuity intake, shoot
 confirmations, chase, card pipeline, invoicing, morning briefing, listing leads).

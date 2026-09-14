@@ -1,4 +1,4 @@
-# CREA v3.1 — operating & maintaining it
+# CREA v3.2.1 — operating & maintaining it
 
 Everything you'll do after it's running: change prices and wording, add or drop features,
 take updates, keep it backed up, recover from trouble. `INSTALL.md` is the one-time setup;

@@ -67,6 +67,27 @@ msg() { curl -s -o /dev/null -X POST $N8N/webhook/crea-wa-inbound -H 'content-ty
   -d "{\"event\":\"message\",\"session\":\"default\",\"payload\":{\"id\":\"$1\",\"from\":\"$2@c.us\",\"body\":\"$3\",\"fromMe\":false,\"type\":\"chat\"}}"; }
 calls() { curl -s localhost:5699/_calls; }
 alerts() { curl -s localhost:5699/_alerts; }
+count_path() { calls | python3 -c "import sys,json;print(sum(1 for c in json.load(sys.stdin) if c['path']=='$1'))"; }
+# Poll for a turn to actually finish (a new /omniroute call landed) instead of guessing a
+# sleep long enough — a fixed sleep is exactly the kind of flaky-under-load test an
+# "industry standard" suite shouldn't have. Fast on a fast runner, patient on a slow one.
+wait_turn() { # $1 = the /omniroute count *before* this turn's message was sent
+  local before="$1" timeout="${2:-25}" waited=0 now
+  while [ "$waited" -lt "$timeout" ]; do
+    now=$(count_path /omniroute)
+    [ "$now" -gt "$before" ] && { echo "$now"; return 0; }
+    sleep 1; waited=$((waited + 1))
+  done
+  echo "$before"; return 1
+}
+wait_ref() { # poll for the owner's held-booking ref to appear, up to $1 seconds
+  local timeout="${1:-25}" waited=0 r
+  while [ "$waited" -lt "$timeout" ]; do
+    r=$(owner_ref); [ -n "$r" ] && { echo "$r"; return 0; }
+    sleep 1; waited=$((waited + 1))
+  done
+  echo ""; return 1
+}
 owner_ref() { calls | python3 -c "
 import sys,json,re
 for c in json.load(sys.stdin):
@@ -84,15 +105,16 @@ for c in json.load(sys.stdin):
 echo "3/6  WhatsApp — full property-intake -> readback -> hold -> owner CONFIRM -> Acuity…"
 curl -s localhost:5699/_reset >/dev/null
 A=61400556677
-msg ai1 $A "Hi, I'd like a listing video for a house";                                sleep 8
-msg ai2 $A "4 bedrooms, 2 bathrooms, double garage, 2 levels, about 380 sqm, pool";    sleep 8
-msg ai3 $A "40 Awaba St, Mosman";                                                      sleep 8
-msg ai4 $A "Saturday 2026-09-19 at 10am";                                              sleep 8
-msg ai5 $A "Yes that's all correct";                                                   sleep 8
-REF=$(owner_ref)
+N=0
+msg ai1 $A "Hi, I'd like a listing video for a house";                                N=$(wait_turn "$N")
+msg ai2 $A "4 bedrooms, 2 bathrooms, double garage, 2 levels, about 380 sqm, pool";    N=$(wait_turn "$N")
+msg ai3 $A "40 Awaba St, Mosman";                                                      N=$(wait_turn "$N")
+msg ai4 $A "Saturday 2026-09-19 at 10am";                                              N=$(wait_turn "$N")
+msg ai5 $A "Yes that's all correct";                                                   N=$(wait_turn "$N")
+REF=$(wait_ref)
 [ -n "$REF" ] && pass "booking held (ref $REF)" || fail "no held-booking ref captured — owner was never notified"
 if [ -n "$REF" ]; then
-  msg cfm 61400000999 "CONFIRM $REF"; sleep 8
+  msg cfm 61400000999 "CONFIRM $REF"; sleep 10
   SRC=$(job_source "BK-$REF")
   [ "$SRC" = "whatsapp" ] && pass "job note written with source=whatsapp" || fail "job source should be 'whatsapp', got '$SRC'"
   ACU=$(calls | python3 -c "import sys,json;print(1 if any(c['path'].startswith('/acuity/appointments') and c.get('method')=='POST' for c in json.load(sys.stdin)) else 0)")
@@ -119,15 +141,17 @@ GREET=$(curl -s -X POST "$N8N/webhook/crea-voice-inbound" -H "X-Twilio-Signature
   --data-urlencode "CallSid=${CALLSID}" --data-urlencode "CallStatus=ringing" --data-urlencode "From=${FROM}")
 case "$GREET" in *"<Gather"*) pass "Twilio signature verified, greeting returned" ;; *) fail "voice greeting failed — got: $GREET" ;; esac
 sleep 2
-sig_and_post "Hi I would like a listing video for a house";                              sleep 8
-sig_and_post "4 bedrooms 2 bathrooms double garage 2 levels 380 square metres pool";      sleep 8
-sig_and_post "40 Awaba Street Mosman";                                                    sleep 8
-sig_and_post "Saturday the 19th of September at 10am";                                    sleep 8
-sig_and_post "Yes that is all correct";                                                   sleep 8
-VREF=$(owner_ref)
+# each of these blocks until n8n's synchronous responseNode webhook actually finishes
+# (crea-13 waits for the reply before answering Twilio) — no arbitrary sleep needed here.
+sig_and_post "Hi I would like a listing video for a house"
+sig_and_post "4 bedrooms 2 bathrooms double garage 2 levels 380 square metres pool"
+sig_and_post "40 Awaba Street Mosman"
+sig_and_post "Saturday the 19th of September at 10am"
+sig_and_post "Yes that is all correct"
+VREF=$(wait_ref)
 [ -n "$VREF" ] && pass "voice booking held (ref $VREF)" || fail "voice call never produced a held-booking ref"
 if [ -n "$VREF" ]; then
-  msg vcfm 61400000999 "CONFIRM $VREF"; sleep 8
+  msg vcfm 61400000999 "CONFIRM $VREF"; sleep 10
   VSRC=$(job_source "BK-$VREF")
   [ "$VSRC" = "call" ] && pass "job note written with source=call (not silently 'whatsapp')" || fail "voice job source should be 'call', got '$VSRC'"
 fi

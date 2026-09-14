@@ -40,14 +40,18 @@ python3 test/attach-test-creds.py workflows/_filled >/dev/null
 # timeout) with the misleading-sounding "all-endpoints-failed". Actually create them here,
 # same shape go-live.sh's own credential-import step uses.
 OMNI_KEY=$(grep -E '^CREA_OMNIROUTE_KEY=' test/test.config.env | cut -d= -f2)
-python3 - "$OMNI_KEY" <<'PY' > workflows/_filled/.ci-creds.json
+ACU_USER=$(grep -E '^CREA_ACUITY_USER_ID=' test/test.config.env | cut -d= -f2)
+ACU_KEY=$(grep -E '^CREA_ACUITY_API_KEY=' test/test.config.env | cut -d= -f2)
+python3 - "$OMNI_KEY" "$ACU_USER" "$ACU_KEY" <<'PY' > workflows/_filled/.ci-creds.json
 import json, sys
-key = sys.argv[1]
+key, acu_user, acu_key = sys.argv[1:4]
 creds = [
     {"id": "creaomniroutecred", "name": "CREA OmniRoute", "type": "httpHeaderAuth",
      "data": {"name": "Authorization", "value": "Bearer " + key}},
     {"id": "creaomniroutecred2", "name": "CREA OmniRoute 2", "type": "httpHeaderAuth",
      "data": {"name": "Authorization", "value": "Bearer " + key}},
+    {"id": "creaacuitycred", "name": "CREA Acuity", "type": "httpBasicAuth",
+     "data": {"user": acu_user, "password": acu_key}},
 ]
 print(json.dumps(creds))
 PY

@@ -38,8 +38,12 @@ for id in creawasend creallm creawainbound creabookingagent creaaiassistant crea
           creamorningbrief creaerrorhandler creaapifyleads creabooking creamsgclient creavoiceinbound; do
   n8n update:workflow --id="$id" --active=true >/dev/null 2>&1 || true
 done
-lbl=$(launchctl list 2>/dev/null | awk 'tolower($3) ~ /n8n/ {print $3; exit}')
-if [ -n "$lbl" ]; then
+# three ways this can be running n8n, checked in order: a Docker container (CI — the `n8n`
+# on PATH is a docker-exec shim, restarting means restarting the container), a macOS launchd
+# service (this Mac's dev setup), or a bare process (fallback, e.g. a fresh local checkout).
+if [ -n "${N8N_DOCKER_CONTAINER:-}" ]; then
+  docker restart "$N8N_DOCKER_CONTAINER" >/dev/null
+elif lbl=$(launchctl list 2>/dev/null | awk 'tolower($3) ~ /n8n/ {print $3; exit}') && [ -n "$lbl" ]; then
   launchctl kickstart -k "gui/$(id -u)/$lbl" >/dev/null 2>&1 || true
 else
   pkill -f "bin/n8n start" 2>/dev/null || true; sleep 1

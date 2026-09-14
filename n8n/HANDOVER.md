@@ -82,6 +82,9 @@ those stay with you.
 - `BOOKING.md` — the two booking decisions + `knowledge/pricing.json`
 - `VOICE.md` — optional phone bookings (Twilio + Cloudflare Tunnel setup, `--test-voice`)
 - `COUNTERMEASURES.md` — how CREA handles outages and abuse (nothing to configure — good to skim)
+- **`../docs/PILOT.md` — once `--test` (and `--test-voice`) are green, run this before you
+  let CREA handle every enquiry unsupervised.** Two weeks on real traffic, watched daily,
+  with a concrete go/no-go checklist. Nobody's monitoring this for you afterward.
 - `OPERATIONS.md` — everything after that: changing prices/wording, config, updates, new
   features, backups, disaster recovery
 - `DATA-AND-BACKUP.md` — the full Obsidian + storage + sync guide

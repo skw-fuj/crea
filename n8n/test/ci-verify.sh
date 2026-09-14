@@ -114,9 +114,13 @@ for c in json.load(sys.stdin):
 
 echo "3/6  WhatsApp — full property-intake -> readback -> hold -> owner CONFIRM -> Acuity…"
 curl -s localhost:5699/_reset >/dev/null
+echo "  -- diagnostic: LLM circuit state before any real turn is sent --"
+curl -s localhost:5699/vault/llm/state | python3 -m json.tool | sed 's/^/    /' || true
 A=61400556677
 N=0
 msg ai1 $A "Hi, I'd like a listing video for a house";                                N=$(wait_turn "$N" || true)
+echo "  -- diagnostic: LLM circuit state after turn 1 --"
+curl -s localhost:5699/vault/llm/state | python3 -m json.tool | sed 's/^/    /' || true
 msg ai2 $A "4 bedrooms, 2 bathrooms, double garage, 2 levels, about 380 sqm, pool";    N=$(wait_turn "$N" || true)
 msg ai3 $A "40 Awaba St, Mosman";                                                      N=$(wait_turn "$N" || true)
 msg ai4 $A "Saturday 2026-09-19 at 10am";                                              N=$(wait_turn "$N" || true)

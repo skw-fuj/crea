@@ -228,10 +228,10 @@ Tris
 
 ## Before sending
 
-- [ ] Both artifact links set to anyone-with-the-link — reverify unauthenticated (last checked
-      for the v1.1 draft, not since)
-- [ ] GitHub repo public — reverify unauthenticated
-- [x] Manual and this message both stamped v3.2.1
+- [x] Both artifact links set to anyone-with-the-link — reverified unauthenticated 2026-09-15
+      (both return 200 + real content: "CREA Build Manual", the interface shell)
+- [x] GitHub repo public — reverified unauthenticated 2026-09-15 (200 + real repo page)
+- [x] Manual and this message both stamped v3.2.4
 - [ ] Decide whether to raise pricing for the build. This draft deliberately does not.
 - [ ] Confirm the Mac Mini has actually been ordered/arrived before sending — item 1 assumes
       it hasn't, delete if it has

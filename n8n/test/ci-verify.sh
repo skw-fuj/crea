@@ -106,12 +106,12 @@ echo "3/6  WhatsApp — full property-intake -> readback -> hold -> owner CONFIR
 curl -s localhost:5699/_reset >/dev/null
 A=61400556677
 N=0
-msg ai1 $A "Hi, I'd like a listing video for a house";                                N=$(wait_turn "$N")
-msg ai2 $A "4 bedrooms, 2 bathrooms, double garage, 2 levels, about 380 sqm, pool";    N=$(wait_turn "$N")
-msg ai3 $A "40 Awaba St, Mosman";                                                      N=$(wait_turn "$N")
-msg ai4 $A "Saturday 2026-09-19 at 10am";                                              N=$(wait_turn "$N")
-msg ai5 $A "Yes that's all correct";                                                   N=$(wait_turn "$N")
-REF=$(wait_ref)
+msg ai1 $A "Hi, I'd like a listing video for a house";                                N=$(wait_turn "$N" || true)
+msg ai2 $A "4 bedrooms, 2 bathrooms, double garage, 2 levels, about 380 sqm, pool";    N=$(wait_turn "$N" || true)
+msg ai3 $A "40 Awaba St, Mosman";                                                      N=$(wait_turn "$N" || true)
+msg ai4 $A "Saturday 2026-09-19 at 10am";                                              N=$(wait_turn "$N" || true)
+msg ai5 $A "Yes that's all correct";                                                   N=$(wait_turn "$N" || true)
+REF=$(wait_ref || true)
 [ -n "$REF" ] && pass "booking held (ref $REF)" || fail "no held-booking ref captured — owner was never notified"
 if [ -n "$REF" ]; then
   msg cfm 61400000999 "CONFIRM $REF"; sleep 10
@@ -148,7 +148,7 @@ sig_and_post "4 bedrooms 2 bathrooms double garage 2 levels 380 square metres po
 sig_and_post "40 Awaba Street Mosman"
 sig_and_post "Saturday the 19th of September at 10am"
 sig_and_post "Yes that is all correct"
-VREF=$(wait_ref)
+VREF=$(wait_ref || true)
 [ -n "$VREF" ] && pass "voice booking held (ref $VREF)" || fail "voice call never produced a held-booking ref"
 if [ -n "$VREF" ]; then
   msg vcfm 61400000999 "CONFIRM $VREF"; sleep 10

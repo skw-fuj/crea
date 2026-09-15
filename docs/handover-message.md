@@ -18,9 +18,12 @@ Here's everything you need — and one honest ask before you hand it your whole 
 
 ---
 
-**THE THREE LINKS**
+**THE FOUR LINKS**
 
-Manual — what it does, what it costs, how to set it up
+The pitch — everything it does, in one page. Press the orange circle and try asking it something
+https://claude.ai/code/artifact/0391fc5e-0e8f-4a4c-ae1e-15dba5e0a000
+
+Manual — what it does, how to set it up
 https://skw-fuj.github.io/crea/
 
 Interface — click the orange circle and it talks to you
@@ -199,8 +202,9 @@ Tris
 > Hey mate, CREA's built and verified — the voice assistant, the WhatsApp booking automations,
 > phone bookings if you want them.
 >
+> The pitch (press the orange circle, ask it something): https://claude.ai/code/artifact/0391fc5e-0e8f-4a4c-ae1e-15dba5e0a000
 > Manual: https://skw-fuj.github.io/crea/
-> Interface (tap the orange circle, it talks): https://skw-fuj.github.io/crea/shell/
+> Interface: https://skw-fuj.github.io/crea/shell/
 > Code: https://github.com/skw-fuj/crea
 >
 > To install: plug the Mini in, open Terminal, paste this one line, walk away for twenty
@@ -231,6 +235,10 @@ Tris
 - [x] Both artifact links set to anyone-with-the-link — reverified unauthenticated 2026-09-15
       (both return 200 + real content: "CREA Build Manual", the interface shell)
 - [x] GitHub repo public — reverified unauthenticated 2026-09-15 (200 + real repo page)
+- [ ] **The pitch artifact link is private by default — share it before sending.** Open it,
+      use the page's own share menu to set it to anyone-with-the-link, and confirm it loads
+      signed out (an incognito window is the easiest check) before this goes to Connell. I
+      can't verify or change this myself — no authenticated access to the artifact's own UI.
 - [x] Manual and this message both stamped v3.2.4
 - [ ] Decide whether to raise pricing for the build. This draft deliberately does not.
 - [ ] Confirm the Mac Mini has actually been ordered/arrived before sending — item 1 assumes

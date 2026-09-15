@@ -244,11 +244,26 @@ setenv(){ # key value
     printf '%s=%s\n' "$1" "$2" >> "$HOME/.hermes/.env"
   fi
 }
-setenv LM_BASE_URL "$ROUTER"
-setenv LM_API_KEY  "local"
-run hermes config set provider lmstudio
-run hermes config set model    auto/best-fast
-ok "Hermes routed to $ROUTER"
+# Re-running the installer must not silently repoint a working brain. This
+# script promises "safe to re-run", and it does leave crea.config.json alone —
+# but the brain actually lives in Hermes' own config, and rewriting that
+# unprompted moved a machine off a configured OpenRouter setup and back onto a
+# router that was not running. The two configs then disagreed, and only kept
+# working because CREA passes -m/--provider explicitly on every call.
+#
+# So: configure the default only when nothing is configured yet.
+CURRENT_MODEL="$(hermes config get model 2>/dev/null \
+                 | sed -n 's/.*default:[[:space:]]*\([^[:space:]]*\).*/\1/p' | head -1)"
+[[ -z "$CURRENT_MODEL" ]] && CURRENT_MODEL="$(hermes config get model 2>/dev/null | tr -d '[:space:]')"
+if [[ -z "$CURRENT_MODEL" || "$CURRENT_MODEL" == "auto/best-fast" ]]; then
+  setenv LM_BASE_URL "$ROUTER"
+  setenv LM_API_KEY  "local"
+  run hermes config set provider lmstudio
+  run hermes config set model    auto/best-fast
+  ok "Hermes routed to $ROUTER"
+else
+  skip "Hermes brain (already configured: $CURRENT_MODEL)"
+fi
 
 if curl -fsS -m 5 "$ROUTER/models" >/dev/null 2>&1; then
   ok "Router reachable"
@@ -291,6 +306,14 @@ fi
 
 step "Background services"
 
+# launchd does NOT inherit your shell's PATH. A service started this way gets
+# a bare /usr/bin:/bin:/usr/sbin:/sbin, which contains no Homebrew — so the
+# agent could not find whisper-cli and every wake died with "whisper.cpp not
+# installed", despite it being installed. ffmpeg and exiftool (the card
+# pipeline) and hermes have the same problem. Pin the PATH explicitly.
+SVC_PATH="$(dirname "$(command -v brew 2>/dev/null || echo /opt/homebrew/bin/brew)")"
+SVC_PATH="$SVC_PATH:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+
 plist(){ # name  program-args...
   local name="$1"; shift
   local f="$HOME/Library/LaunchAgents/com.cfilms.crea.$name.plist"
@@ -303,6 +326,9 @@ plist(){ # name  program-args...
   <key>Label</key><string>com.cfilms.crea.$name</string>
   <key>ProgramArguments</key><array>
 $args  </array>
+  <key>EnvironmentVariables</key><dict>
+    <key>PATH</key><string>$SVC_PATH</string>
+  </dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
   <key>ProcessType</key><string>Interactive</string>

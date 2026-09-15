@@ -392,9 +392,20 @@ fi
 
 b "9/9  self-test — a real message through the assistant"
 T="61400000000"
-curl -sf -X POST "$(N8N_URL)/webhook/crea-wa-inbound" -H 'content-type: application/json' \
-  -d "{\"event\":\"message\",\"session\":\"default\",\"payload\":{\"id\":\"selftest-$(date +%s)\",\"from\":\"${T}@c.us\",\"body\":\"how much for a listing video?\",\"fromMe\":false,\"type\":\"chat\"}}" >/dev/null \
-  && ok "crea-01 accepted the test message" || warn "crea-01 did not accept it — ./go-live.sh --logs n8n"
+# n8n's HTTP server answers /healthz before it's finished registering every active
+# workflow's webhook internally — with 17 workflows to activate, the very first
+# request can race ahead of crea-wa-inbound's own registration and get a genuine
+# "not registered" 404 even though the stack is healthy. Same class of race as the
+# credential-import retry above; not a real failure, so retry briefly rather than
+# report one on the first beat.
+testok=1
+for _i in 1 2 3 4 5; do
+  curl -sf -X POST "$(N8N_URL)/webhook/crea-wa-inbound" -H 'content-type: application/json' \
+    -d "{\"event\":\"message\",\"session\":\"default\",\"payload\":{\"id\":\"selftest-$(date +%s)-${_i}\",\"from\":\"${T}@c.us\",\"body\":\"how much for a listing video?\",\"fromMe\":false,\"type\":\"chat\"}}" >/dev/null \
+    && { testok=0; break; }
+  sleep 1
+done
+[ "$testok" = 0 ] && ok "crea-01 accepted the test message" || warn "crea-01 did not accept it — ./go-live.sh --logs n8n"
 sleep 6
 S=$(compose exec -T vault-api wget -qO- "http://localhost:5692/state?key=${T}" 2>/dev/null || echo '{}')
 echo "  assistant state for the test number:"; echo "  $S"
